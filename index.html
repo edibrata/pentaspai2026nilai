@@ -49,6 +49,8 @@
         window.activeEditJuriNo = null; 
         window.isAuthReady = false;
         window.draftScores = {}; 
+        window.isManualComment = false; 
+        window.isEditingComment = false;
 
         const initConnection = async () => {
             try {
@@ -492,7 +494,23 @@
                         </div>
 
                         <div id="comment_section" class="bg-white rounded-md p-4 border border-slate-200 shadow-sm locked-section">
-                            <div class="flex justify-between items-center mb-2"><label class="block text-[8px] font-black uppercase text-slate-400 tracking-widest">Saran & Justifikasi Juri</label><span class="text-[7px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black uppercase">PAI Narrative</span></div>
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="block text-[8px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                                    Saran & Justifikasi Juri
+                                    <div class="flex items-center gap-1">
+                                        <button id="btnEditComment" onclick="toggleCommentEdit()" title="Edit narasi" class="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
+                                            <svg id="iconEdit" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                        </button>
+                                        <button onclick="resetNarrativeToAuto()" title="Generate ulang otomatis" class="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                        </button>
+                                    </div>
+                                </label>
+                                <div class="flex gap-1">
+                                    <span id="manualBadge" class="hidden text-[7px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black uppercase">Edit Manual</span>
+                                    <span id="autoBadge" class="text-[7px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black uppercase">Otomatis</span>
+                                </div>
+                            </div>
                             <textarea id="judge_comment" readonly rows="12" class="w-full p-2.5 rounded border border-slate-100 bg-slate-50 text-[11px] font-medium outline-none focus:border-emerald-600 transition-all resize-none leading-relaxed" placeholder="Narasi deskriptif akan muncul otomatis..."></textarea>
                         </div>
                         <div id="action_buttons" class="space-y-2 locked-section">
@@ -1255,7 +1273,54 @@
             return remaining + zeroWithoutJustification + (materiMissing ? 1 : 0);
         }
 
-        // --- UPDATED NARRATIVE FUNCTIONS ---
+        // --- NARRATIVE LOGIC FUNCTIONS ---
+        function toggleCommentEdit() {
+            const ta = document.getElementById('judge_comment');
+            const icon = document.getElementById('iconEdit');
+            const autoBadge = document.getElementById('autoBadge');
+            const manualBadge = document.getElementById('manualBadge');
+
+            window.isEditingComment = !window.isEditingComment;
+            
+            if (window.isEditingComment) {
+                ta.readOnly = false;
+                ta.classList.remove('bg-slate-50');
+                ta.classList.add('bg-white', 'border-emerald-500', 'ring-2', 'ring-emerald-100');
+                icon.innerHTML = '<path d="M5 13l4 4L19 7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>';
+                window.isManualComment = true; 
+                autoBadge.classList.add('hidden');
+                manualBadge.classList.remove('hidden');
+                ta.focus();
+            } else {
+                ta.readOnly = true;
+                ta.classList.add('bg-slate-50');
+                ta.classList.remove('bg-white', 'border-emerald-500', 'ring-2', 'ring-emerald-100');
+                icon.innerHTML = '<path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>';
+            }
+        }
+
+        function resetNarrativeToAuto() {
+            if(confirm("Buang perubahan manual dan kembali ke narasi otomatis?")) {
+                window.isManualComment = false;
+                window.isEditingComment = false;
+                
+                const ta = document.getElementById('judge_comment');
+                const icon = document.getElementById('iconEdit');
+                const autoBadge = document.getElementById('autoBadge');
+                const manualBadge = document.getElementById('manualBadge');
+                
+                ta.readOnly = true;
+                ta.classList.add('bg-slate-50');
+                ta.classList.remove('bg-white', 'border-emerald-500', 'ring-2', 'ring-emerald-100');
+                icon.innerHTML = '<path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>';
+                
+                autoBadge.classList.remove('hidden');
+                manualBadge.classList.add('hidden');
+                
+                generateNarrative();
+            }
+        }
+
         function formatList(items, mode = "and") {
             if (!items || items.length === 0) return "";
             if (items.length === 1) return items[0];
@@ -1267,6 +1332,8 @@
         }
 
         function generateNarrative() {
+            if (window.isManualComment) return;
+
             const commentArea = document.getElementById('judge_comment');
             const sid = document.getElementById('judge_participant_select').value;
             const lid = window.currentUser?.lombaId || 'mtq';
@@ -1276,16 +1343,12 @@
             if (!draft || !RUBRIK_DATA[lid]) return;
 
             const rubrik = RUBRIK_DATA[lid];
-            const noUndian = document.getElementById('displaySelectedNo').innerText;
-
-            // Dictionary Diksi Kontekstual
+            
             const dictionMap = {
-                // MTQ & MHQ
                 "a1": { "4": ["sangat merdu dan bertenaga", "sangat jernih serta memiliki power mantap"], "2": ["masih terdengar serak", "volumenya belum maksimal"], "1": ["memerlukan pembinaan vokal yang intensif"] },
                 "b1": { "4": ["sangat akurat dan tajwid yang presisi", "sangat tartil mengikuti kaidah ahkamul huruf"], "2": ["masih sering keliru pada penerapan tajwid dasar"], "1": ["membutuhkan pemahaman tajwid yang lebih mendalam"] },
                 "c1": { "4": ["sangat fasih dengan artikulasi makhraj yang tepat", "pelafalan hurufnya sangat mumpuni"], "2": ["pengucapan makhrajnya masih kurang tegas"], "1": ["masih sering terjadi kerancuan makhraj (cadel)"] },
                 "c4": { "4": ["sangat lancar dan meyakinkan", "menunjukkan kefasihan yang luar biasa"], "2": ["masih sering tersendat dan ragu"], "1": ["penguasaan lafaznya masih belum stabil"] },
-                // Pildacil
                 "a2": { "4": ["penguasaan dalil yang sangat fasih", "penyampaian dalil yang sangat akurat"], "2": ["pelafalan dalil masih perlu diperbaiki"], "1": ["belum menyertakan dalil pendukung"] },
                 "b1": { "4": ["intonasi yang dinamis dan bersemangat", "artikulasi bicara yang sangat tegas"], "2": ["gaya bicara masih terdengar monoton"], "1": ["suara belum terdengar jelas ke audiens"] },
                 "c1": { "4": ["menunjukkan adab dai yang sangat santun", "tata kramanya di panggung sangat berwibawa"], "2": ["terlihat kurang tenang saat tampil"], "1": ["etika di panggung masih perlu bimbingan"] }
@@ -1312,21 +1375,7 @@
             };
 
             let narrativeParts = [];
-            
-            // Header
-            const openingVariations = [
-                `Peserta nomor undian ${noUndian} tampil dengan performa yang cukup bersaing.`,
-                `Secara keseluruhan, penampilan peserta nomor undian ${noUndian} terlihat cukup kompetitif.`,
-                `Catatan dewan juri untuk penampilan nomor undian ${noUndian} adalah sebagai berikut.`
-            ];
-            narrativeParts.push(openingVariations[Math.floor(Math.random() * openingVariations.length)]);
 
-            if (draft.theme) {
-                const themePrefix = lid === 'pildacil' ? 'Membawakan materi bertema' : 'Melantunkan ayat suci pada maqra';
-                narrativeParts.push(`${themePrefix} "${draft.theme}", `);
-            }
-
-            // Grouping logic per Aspect
             Object.keys(rubrik.aspek).forEach((aKey, idx) => {
                 let indicatorKeys = lid === 'mtq' ? {a:['a1','a2','a3','a4'],b:['b1','b2','b3'],c:['c1','c2','c3','c4','c5']} : 
                                      lid === 'mhq' ? {a:['a1','a2','a3'],b:['b1','b2','b3'],c:['c1','c2','c3']} : {a:['a1','a2','a3'],b:['b1','b2','b3'],c:['c1','c2','c3']};
@@ -1358,12 +1407,6 @@
                 }
             });
 
-            const closings = [
-                "Semoga catatan ini menjadi bahan evaluasi untuk meningkatkan kualitas penampilan di masa yang akan datang.",
-                "Teruslah berlatih agar dapat tampil lebih maksimal lagi pada kesempatan berikutnya.",
-                "Diharapkan motivasi belajar terus ditingkatkan demi prestasi yang lebih gemilang."
-            ];
-            narrativeParts.push(closings[Math.floor(Math.random() * closings.length)]);
             commentArea.value = narrativeParts.join(" ");
         }
 
@@ -1422,6 +1465,17 @@
         }
 
         function loadExistingScore() {
+            window.isManualComment = false;
+            window.isEditingComment = false;
+            
+            const ta = document.getElementById('judge_comment');
+            ta.readOnly = true;
+            ta.classList.add('bg-slate-50');
+            ta.classList.remove('bg-white', 'border-emerald-500', 'ring-2', 'ring-emerald-100');
+            document.getElementById('iconEdit').innerHTML = '<path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>';
+            document.getElementById('autoBadge').classList.remove('hidden');
+            document.getElementById('manualBadge').classList.add('hidden');
+
             const sid = document.getElementById('judge_participant_select').value;
             const lid = window.currentUser.lombaId || 'mtq';
             const jNo = window.activeEditJuriNo || window.currentUser.juriNo || "1";
@@ -1453,11 +1507,16 @@
                 
                 if (dbRecord.justifications) {
                     Object.keys(dbRecord.justifications).forEach(id => {
-                        const ta = document.getElementById(`justification_${id}`);
-                        if (ta) ta.value = dbRecord.justifications[id];
+                        const taJust = document.getElementById(`justification_${id}`);
+                        if (taJust) taJust.value = dbRecord.justifications[id];
                     });
                 }
                 document.getElementById('judge_comment').value = dbRecord.comment || "";
+                if (dbRecord.comment) {
+                    window.isManualComment = true;
+                    document.getElementById('autoBadge').classList.add('hidden');
+                    document.getElementById('manualBadge').classList.remove('hidden');
+                }
             } else if (currentMateri) {
                 const draftKey = `${sid}_${lid}_J${jNo}`;
                 if (!window.draftScores[draftKey]) window.draftScores[draftKey] = { granularScores: {}, justifications: {}, comment: "", theme: currentMateri };
@@ -1484,10 +1543,20 @@
         }
 
         function clearScoreInputs() { 
+            window.isManualComment = false;
+            window.isEditingComment = false;
+            const ta = document.getElementById('judge_comment');
+            ta.readOnly = true;
+            ta.classList.add('bg-slate-50');
+            ta.classList.remove('bg-white', 'border-emerald-500', 'ring-2', 'ring-emerald-100');
+            document.getElementById('iconEdit').innerHTML = '<path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>';
+            document.getElementById('autoBadge').classList.remove('hidden');
+            document.getElementById('manualBadge').classList.add('hidden');
+
             document.querySelectorAll('.rubric-option').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('[id^="score_label_"]').forEach(el => el.innerText = 'BELUM DINILAI');
             document.querySelectorAll('.manual-score-input').forEach(i => i.value = '');
-            document.querySelectorAll('.justification-input').forEach(ta => ta.value = '');
+            document.querySelectorAll('.justification-input').forEach(taJust => taJust.value = '');
             const matSel = document.getElementById('judge_materi_select');
             if (matSel) matSel.value = "";
             document.getElementById('live_total_score').innerText = '0.00'; 
