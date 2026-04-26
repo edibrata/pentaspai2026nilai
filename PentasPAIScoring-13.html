@@ -1,0 +1,1934 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>E-Scoring Pentas PAI Sukaresmi 2026</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/edibrata/image/main/Logo%20Pentas%20PAI-1.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, doc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyC6IXCk6EXm0ndord8Is6cRZf_mG2MY5UM",
+            authDomain: "kedinasan-d9051.firebaseapp.com",
+            projectId: "kedinasan-d9051",
+            storageBucket: "kedinasan-d9051.firebasestorage.app",
+            messagingSenderId: "488517479224",
+            appId: "1:488517479224:web:57ed244cf69e2a010c6fcd"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const customAppId = "PentasPAI2026"; 
+
+        window.db = db;
+        window.auth = auth;
+        window.customAppId = customAppId;
+        window.firestoreTools = { collection, addDoc, onSnapshot, query, doc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc };
+
+        window.currentUser = null;
+        window.realAdmin = null; 
+        window.submissions = [];
+        window.scores = [];
+        window.allUsers = [];
+        window.requests = [];
+        window.pildacilThemes = {}; 
+        window.mtqMaqras = {}; 
+        window.activeEditJuriNo = null; 
+        window.isAuthReady = false;
+        window.draftScores = {}; 
+
+        const initConnection = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    try {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } catch (tokenErr) {
+                        await signInAnonymously(auth);
+                    }
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                const uid = auth.currentUser.uid;
+                const sessionRef = doc(db, 'artifacts', customAppId, 'public', 'data', 'remembered_sessions', uid);
+                const sessionSnap = await getDoc(sessionRef);
+                
+                if (sessionSnap.exists()) {
+                    const savedData = sessionSnap.data();
+                    const timer = setInterval(() => {
+                        const uInput = document.getElementById('login_user');
+                        const pInput = document.getElementById('login_pass');
+                        const remCheck = document.getElementById('rememberMe');
+                        if (uInput && pInput) {
+                            uInput.value = savedData.username || "";
+                            pInput.value = savedData.password || "";
+                            if(remCheck) remCheck.checked = true;
+                            clearInterval(timer);
+                        }
+                    }, 100);
+                }
+            } catch (error) {
+                console.error("Koneksi Firebase gagal:", error);
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                window.isAuthReady = true;
+                listenToData();
+            }
+        });
+
+        initConnection();
+
+        function listenToData() {
+            if (!auth.currentUser) return;
+            onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'pendaftar'), (snapshot) => {
+                window.submissions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (window.currentUser) { updateJudgingParticipants(); updateResultsTable(); }
+            }, (err) => console.error(err));
+            
+            onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'penilaian'), (snapshot) => {
+                window.scores = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (window.currentUser) { updateJudgingParticipants(); updateResultsTable(); updateLockUI(); }
+            }, (err) => console.error(err));
+
+            onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'pildacil_themes'), (snapshot) => {
+                snapshot.docs.forEach(doc => {
+                    window.pildacilThemes[doc.id] = doc.data().theme;
+                });
+                syncMateriUI('pildacil');
+            }, (err) => console.error(err));
+
+            onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'mtq_maqras'), (snapshot) => {
+                snapshot.docs.forEach(doc => {
+                    window.mtqMaqras[doc.id] = doc.data().maqra;
+                });
+                syncMateriUI('mtq');
+            }, (err) => console.error(err));
+
+            onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'users'), (snapshot) => {
+                window.allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (window.currentUser && window.currentUser.role === 'super_admin') updateUsersTable();
+            }, (err) => console.error(err));
+            onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'requests'), (snapshot) => {
+                window.requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (window.currentUser) { updateLockUI(); if (window.currentUser.role === 'super_admin') updateRequestsTable(); }
+            }, (err) => console.error(err));
+        }
+
+        function syncMateriUI(lidContext) {
+            const sid = document.getElementById('judge_participant_select')?.value;
+            if (sid && window.currentUser?.lombaId === lidContext) {
+                const currentVal = lidContext === 'mtq' ? window.mtqMaqras[sid] : window.pildacilThemes[sid];
+                const textDisplay = document.getElementById('materi_text_val');
+                if (textDisplay) textDisplay.innerText = currentVal || "Menunggu Juri 1...";
+                
+                const jNo = window.activeEditJuriNo || window.currentUser?.juriNo;
+                if (jNo == "2" && currentVal) {
+                    const draftKey = `${sid}_${lidContext}_J2`;
+                    if (!window.draftScores[draftKey]) window.draftScores[draftKey] = { granularScores: {}, justifications: {}, comment: "", theme: currentVal };
+                    else window.draftScores[draftKey].theme = currentVal;
+                    calculateLiveTotal();
+                    generateNarrative();
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; margin: 0; overflow-x: hidden; }
+        .tab-content { display: none !important; }
+        .tab-content.active { display: block !important; }
+        
+        #login-container.active { 
+            display: flex !important; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh;
+            width: 100vw;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 9999;
+            background-image: linear-gradient(rgba(6, 78, 59, 0.75), rgba(6, 78, 59, 0.85)), url('https://raw.githubusercontent.com/edibrata/image/main/Background%20Pentas%20PAI.jpg');
+            background-size: cover;
+            background-position: center;
+        }
+
+        .gradient-bg { background: linear-gradient(135deg, #064e3b 0%, #065f46 100%); }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px; 
+            width: 100%;
+            max-width: 340px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+
+        .impersonation-bar { background: #f59e0b; color: #451a03; }
+        input[type="checkbox"] { accent-color: #059669; width: 16px; height: 16px; cursor: pointer; }
+
+        .aspect-container { display: none; }
+        .aspect-container.active { display: block; animation: fadeIn 0.3s ease-out; }
+
+        .rubric-card {
+            background: #ffffff;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            margin-bottom: 8px;
+        }
+        .rubric-header {
+            background: #f0fdf4;
+            padding: 10px 14px;
+            border-bottom: 1px solid #dcfce7;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .rubric-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-bottom: 1px solid #f8fafc;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+        .rubric-option:last-child { border-bottom: none; }
+        .rubric-option.active {
+            background: #ecfdf5;
+            border-left: 4px solid #059669;
+        }
+        .rubric-radio {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 2px solid #cbd5e1;
+            flex-shrink: 0;
+            position: relative;
+        }
+        .rubric-option.active .rubric-radio {
+            border-color: #059669;
+            background: #059669;
+        }
+        .rubric-option.active .rubric-radio::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: white;
+        }
+        .score-tag {
+            background: #f1f5f9;
+            color: #64748b;
+            font-weight: 800;
+            font-size: 10px;
+            padding: 0 8px;
+            height: 24px;
+            border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            min-width: 24px;
+        }
+        .active .score-tag { background: #059669; color: white; }
+        
+        .rubric-option.zero-option.active .score-tag { background: #e11d48; }
+        .rubric-option.zero-option.active { border-left-color: #e11d48; background: #fff1f2; }
+        
+        .justification-input {
+            width: calc(100% - 24px);
+            margin: 4px 12px 10px 12px;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #fda4af;
+            background: #fff1f2;
+            font-size: 10px;
+            font-weight: 600;
+            outline: none;
+            display: none;
+            resize: none;
+        }
+        .rubric-option.active.zero-option + .justification-input { display: block; }
+        .rubric-option.active.zero-option + .justification-input.invalid-alert { border-color: #e11d48; box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.1); }
+
+        .rubric-desc { font-size: 11px; line-height: 1.4; color: #475569; }
+        .active .rubric-desc { color: #064e3b; font-weight: 600; }
+
+        .aspect-nav-btn {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 6px;
+            display: flex; align-items: center; gap: 8px;
+            transition: all 0.2s;
+            margin-bottom: 4px;
+            border: 1px solid transparent;
+            opacity: 0.6;
+        }
+        .aspect-nav-btn.active { background: white; border-color: #d1fae5; box-shadow: 0 2px 4px rgba(0,0,0,0.05); color: #059669; opacity: 1; }
+        .aspect-nav-btn.incomplete { border-color: #fda4af; background: #fff1f2; }
+        
+        .aspect-circle {
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            background: #f1f5f9;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; font-size: 10px;
+            color: #94a3b8;
+            flex-shrink: 0;
+        }
+        .active .aspect-circle { background: #059669; color: white; }
+        .aspect-nav-btn.completed .aspect-circle { background: #10b981; color: white; }
+        .aspect-nav-btn.completed .aspect-circle::after { content: '✓'; }
+
+        .modal-enter { animation: modalIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes modalIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+
+        .locked-section { opacity: 0.4; pointer-events: none; filter: grayscale(0.8); transition: all 0.3s; }
+        .unlocked-section { opacity: 1; pointer-events: auto; filter: none; }
+
+        .manual-score-input {
+            width: 65px; height: 36px; background: #f0fdf4; border: 2.5px solid #bbf7d0; border-radius: 6px;
+            text-align: center; font-family: monospace; font-weight: 900; font-size: 14px; color: #065f46;
+            outline: none; transition: all 0.2s;
+        }
+        .manual-score-input:focus { border-color: #059669; background: #ffffff; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
+        
+        th.sort-active { color: #059669; text-decoration: underline; cursor: pointer; }
+        th.sort-inactive { cursor: pointer; }
+        th.sort-inactive:hover { background: #f1f5f9; }
+
+        .score-clickable { cursor: pointer; border-radius: 4px; padding: 4px; transition: all 0.2s; display: inline-block; min-width: 40px; }
+        .score-clickable:hover { background: #f0fdf4; color: #059669; text-decoration: underline; }
+
+        .rank-row-1 { background-color: #fefce8 !important; } 
+        .rank-row-2 { background-color: #f8fafc !important; } 
+        .rank-row-3 { background-color: #fff7ed !important; } 
+        
+        .rank-badge-1 { background-color: #f59e0b; color: white; }
+        .rank-badge-2 { background-color: #94a3b8; color: white; }
+        .rank-badge-3 { background-color: #ea580c; color: white; }
+
+        .status-dot-ping { animation: status-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite; }
+        @keyframes status-ping { 75%, 100% { transform: scale(2); opacity: 0; } }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 flex flex-col text-sm">
+
+    <div id="impersonationBar" class="hidden impersonation-bar px-4 py-2 text-center text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-4 border-b border-amber-600/20">
+        <span>⚠️ Mode Penyamaran: <span id="impersonatedName" class="underline">...</span></span>
+        <button onclick="stopImpersonation()" class="bg-amber-900 text-white px-3 py-1 rounded text-[9px] hover:bg-black transition-all">Kembali ke Admin</button>
+    </div>
+
+    <nav id="mainNav" class="bg-white shadow-sm sticky top-0 z-50 border-b border-slate-200 hidden">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between items-center h-14 md:h-16">
+                <div class="flex items-center gap-3">
+                    <img src="https://raw.githubusercontent.com/edibrata/image/main/Logo%20Pentas%20PAI-1.png" alt="Logo" class="h-10 md:h-12 w-auto">
+                    <div class="flex flex-col">
+                        <span class="font-bold text-base md:text-lg tracking-tight leadership-none text-slate-900">Pentas <span class="text-emerald-700 uppercase">PAI 2026</span></span>
+                        <span id="userBadge" class="text-[8px] font-black bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded uppercase tracking-widest leadership-none mt-1">...</span>
+                    </div>
+                </div>
+                <div class="flex items-center h-full gap-1">
+                    <button onclick="switchTab('penilaian')" id="nav-penilaian" class="nav-link px-3 transition-all border-b-2 h-full flex items-center gap-2 group hidden text-slate-400 hover:text-emerald-700 border-transparent">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" stroke-width="2"/></svg>
+                        <span class="hidden md:block font-bold text-[10px] uppercase tracking-widest">Penilaian</span>
+                    </button>
+                    <button onclick="switchTab('database')" id="nav-database" class="nav-link px-3 transition-all border-b-2 h-full flex items-center gap-2 group hidden text-slate-400 hover:text-emerald-700 border-transparent">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path></svg>
+                        <span class="hidden md:block font-bold text-[10px] uppercase tracking-widest ml-2">Database</span>
+                    </button>
+                    <button onclick="switchTab('management')" id="nav-management" class="nav-link px-3 transition-all border-b-2 h-full flex items-center gap-2 group hidden text-slate-400 hover:text-emerald-700 border-transparent">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" stroke-width="2"/></svg>
+                        <span class="hidden md:block font-bold text-[10px] uppercase tracking-widest">Akun</span>
+                    </button>
+                    <div class="w-px h-8 bg-slate-200 mx-2"></div>
+                    <button onclick="logout()" class="px-3 text-rose-500 hover:bg-rose-50 h-full transition-all flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" stroke-width="2"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div id="app-wrapper" class="flex-grow flex flex-col relative">
+        <!-- LOGIN SECTION -->
+        <section id="login-container" class="tab-content active">
+            <div class="glass-card shadow-xl overflow-hidden fade-in">
+                <div class="gradient-bg p-5 text-white text-center">
+                    <img src="https://raw.githubusercontent.com/edibrata/image/main/Logo%20Pentas%20PAI-1.png" alt="Logo" class="w-20 h-auto mx-auto mb-3 rounded-full bg-white p-1 shadow-lg">
+                    <h1 class="text-xl font-black uppercase tracking-tight leading-tight">E-Scoring Pentas PAI</h1>
+                    <p class="text-[9px] font-bold opacity-70 uppercase tracking-[0.3em]">Kecamatan Sukaresmi 2026</p>
+                </div>
+                <div class="p-6 space-y-4 bg-white/95">
+                    <div>
+                        <label for="login_user" class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Username</label>
+                        <input type="text" id="login_user" class="w-full px-3 py-2 rounded-md border border-slate-200 focus:border-emerald-600 bg-white outline-none font-bold tracking-wide transition-all" placeholder="ID Akun">
+                    </div>
+                    <div>
+                        <label for="login_pass" class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Password</label>
+                        <div class="relative">
+                            <input type="password" id="login_pass" class="w-full px-3 py-2 pr-10 rounded-md border border-slate-200 focus:border-emerald-600 bg-white outline-none font-bold tracking-wide transition-all" placeholder="••••••••">
+                            <button type="button" onclick="togglePassword('login_pass', 'eye_icon')" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 transition-colors p-1.5">
+                                <svg id="eye_icon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 py-0.5 select-none">
+                        <input type="checkbox" id="rememberMe">
+                        <label for="rememberMe" class="text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-emerald-700 transition-colors">Ingat Saya</label>
+                    </div>
+                    <button onclick="handleLogin()" id="btnLogin" class="w-full py-3.5 gradient-bg text-white font-black rounded shadow-lg active:scale-[0.97] transition-all uppercase tracking-widest text-[10px]">MASUK SISTEM</button>
+                    <p class="text-center text-[8px] font-black uppercase text-slate-300 tracking-[0.2em] mt-4">Developed by Edi Brata</p>
+                </div>
+            </div>
+        </section>
+
+        <div id="authenticatedView" class="hidden flex-grow flex flex-col w-full">
+            <!-- JUDGING SECTION -->
+            <section id="penilaian" class="tab-content fade-in max-w-7xl mx-auto px-4 py-6 w-full flex-grow flex flex-col">
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start flex-grow">
+                    
+                    <!-- Side Nav Scoring -->
+                    <div class="lg:col-span-3 sticky top-24 space-y-4">
+                        <div class="bg-emerald-900 rounded-md p-4 text-white shadow-lg overflow-hidden relative">
+                            <div class="relative z-10">
+                                <p class="text-[8px] font-black text-emerald-300 uppercase tracking-[0.3em] mb-1">Peserta Terpilih</p>
+                                <div class="flex items-center gap-4">
+                                    <div id="displaySelectedNo" class="text-4xl font-black tracking-tighter">--</div>
+                                    <div class="min-w-0">
+                                        <h2 id="judgingTitle" class="text-[10px] font-black uppercase opacity-60 truncate">Memuat...</h2>
+                                        <h2 id="judgingRoleInfo" class="text-[11px] font-bold text-amber-400 uppercase">Pilih Peserta</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-md p-4 shadow-sm border border-slate-200">
+                            <label class="block text-[8px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Nomor Undian</label>
+                            <select id="judge_participant_select" onchange="handleManualParticipantChange()" class="w-full px-3 py-2.5 rounded bg-slate-50 border border-slate-200 font-bold text-xs outline-none focus:border-emerald-600 transition-all cursor-pointer">
+                                <option value="">-- Pilih Nomor Undian --</option>
+                            </select>
+                            
+                            <!-- Materi Container -->
+                            <div id="materi_container" class="mt-4 hidden">
+                                <label id="materi_label" class="block text-[8px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Materi Lomba</label>
+                                <div id="materi_input_wrapper">
+                                    <select id="judge_materi_select" onchange="handleMateriChange()" class="w-full px-3 py-2.5 rounded bg-amber-50 border border-amber-200 font-bold text-[10px] outline-none focus:border-amber-600 transition-all cursor-pointer uppercase">
+                                        <option value="">-- Pilih Materi --</option>
+                                    </select>
+                                    <div id="materi_readonly_display" class="hidden p-3 rounded border border-amber-100 bg-amber-50/50">
+                                        <p class="text-[8px] font-black text-amber-800/40 uppercase mb-1">Pilihan Juri 1:</p>
+                                        <p id="materi_text_val" class="text-[10px] font-black text-amber-700 uppercase leading-snug">Menunggu Juri 1...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="aspect_nav_container" class="bg-emerald-50 rounded-md p-2 space-y-1 locked-section">
+                            <button onclick="setActiveAspect('a')" id="nav_btn_a" class="aspect-nav-btn active"><div class="aspect-circle"><span>A</span></div><div class="flex-grow"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_a">Aspek A</p><p class="text-[8px] opacity-60 font-bold" id="prog_a">0 Terisi</p></div></button>
+                            <button onclick="setActiveAspect('b')" id="nav_btn_b" class="aspect-nav-btn"><div class="aspect-circle"><span>B</span></div><div class="flex-grow"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_b">Aspek B</p><p class="text-[8px] opacity-60 font-bold" id="prog_b">0 Terisi</p></div></button>
+                            <button onclick="setActiveAspect('c')" id="nav_btn_c" class="aspect-nav-btn"><div class="aspect-circle"><span>C</span></div><div class="flex-grow"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_c">Aspek C</p><p class="text-[8px] opacity-60 font-bold" id="prog_c">0 Terisi</p></div></button>
+                            <button onclick="setActiveAspect('d')" id="nav_btn_d" class="aspect-nav-btn"><div class="aspect-circle"><span>D</span></div><div class="flex-grow"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_d">Aspek D</p><p class="text-[8px] opacity-60 font-bold" id="prog_d">0 Terisi</p></div></button>
+                        </div>
+                    </div>
+
+                    <!-- Rubric Body -->
+                    <div id="rubric_scoring_container" class="lg:col-span-6 flex flex-col min-h-[500px] locked-section">
+                        <div id="container_aspek_a" class="aspect-container active">
+                            <div class="mb-4 flex items-center gap-3"><span class="bg-emerald-600 text-white w-7 h-7 rounded flex items-center justify-center font-black">A</span><h3 id="label_aspek_a" class="text-sm font-black text-slate-800 uppercase tracking-tight leading-none">Aspek A</h3></div>
+                            <div id="cards_aspek_a" class="space-y-2"></div>
+                            <div class="mt-4 flex justify-end"><button onclick="setActiveAspect('b')" class="bg-emerald-600 text-white px-5 py-2.5 rounded font-black text-[10px] uppercase shadow hover:bg-emerald-700 flex items-center gap-2">Lanjut <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" stroke-width="2"/></svg></button></div>
+                        </div>
+                        <div id="container_aspek_b" class="aspect-container">
+                            <div class="mb-4 flex items-center gap-3"><span class="bg-emerald-600 text-white w-7 h-7 rounded flex items-center justify-center font-black">B</span><h3 id="label_aspek_b" class="text-sm font-black text-slate-800 uppercase tracking-tight leading-none">Aspek B</h3></div>
+                            <div id="cards_aspek_b" class="space-y-2"></div>
+                            <div class="mt-4 flex justify-between"><button onclick="setActiveAspect('a')" class="border border-slate-200 text-slate-500 px-5 py-2 rounded font-black text-[10px] uppercase">Kembali</button><button onclick="setActiveAspect('c')" class="bg-emerald-600 text-white px-5 py-2.5 rounded font-black text-[10px] uppercase shadow hover:bg-emerald-700 flex items-center gap-2">Lanjut <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" stroke-width="2"/></svg></button></div>
+                        </div>
+                        <div id="container_aspek_c" class="aspect-container">
+                            <div class="mb-4 flex items-center gap-3"><span class="bg-emerald-600 text-white w-7 h-7 rounded flex items-center justify-center font-black">C</span><h3 id="label_aspek_c" class="text-sm font-black text-slate-800 uppercase tracking-tight leading-none">Aspek C</h3></div>
+                            <div id="cards_aspek_c" class="space-y-2"></div>
+                            <div class="mt-4 flex justify-between"><button onclick="setActiveAspect('b')" class="border border-slate-200 text-slate-500 px-5 py-2 rounded font-black text-[10px] uppercase">Kembali</button><button onclick="setActiveAspect('d')" id="btn_next_to_d" class="bg-emerald-600 text-white px-5 py-2.5 rounded font-black text-[10px] uppercase shadow hover:bg-emerald-700 flex items-center gap-2 text-center">Lanjut <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" stroke-width="2"/></svg></button></div>
+                        </div>
+                        <div id="container_aspek_d" class="aspect-container">
+                            <div class="mb-4 flex items-center gap-3"><span class="bg-emerald-600 text-white w-7 h-7 rounded flex items-center justify-center font-black">D</span><h3 id="label_aspek_d" class="text-sm font-black text-slate-800 uppercase tracking-tight leading-none">Aspek D</h3></div>
+                            <div id="cards_aspek_d" class="space-y-2"></div>
+                            <div class="mt-4 flex justify-start" id="controls_aspek_d"><button onclick="setActiveAspect('c')" class="border border-slate-200 text-slate-500 px-5 py-2 rounded font-black text-[10px] uppercase">Kembali</button></div>
+                        </div>
+                    </div>
+
+                    <!-- Right Panel Scoring -->
+                    <div class="lg:col-span-3 sticky top-24 space-y-4">
+                        <div class="bg-slate-900 rounded-md p-5 text-white shadow-xl text-center border-t-4 border-emerald-600">
+                            <p id="score_label_context" class="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-2">Belum Dinilai</p>
+                            <h2 class="text-5xl font-black leading-none tracking-tighter" id="live_total_score">0.00</h2>
+                        </div>
+
+                        <div id="comment_section" class="bg-white rounded-md p-4 border border-slate-200 shadow-sm locked-section">
+                            <div class="flex justify-between items-center mb-2"><label class="block text-[8px] font-black uppercase text-slate-400 tracking-widest">Saran & Justifikasi Juri</label><span class="text-[7px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black uppercase">PAI Narrative</span></div>
+                            <textarea id="judge_comment" readonly rows="12" class="w-full p-2.5 rounded border border-slate-100 bg-slate-50 text-[11px] font-medium outline-none focus:border-emerald-600 transition-all resize-none leading-relaxed" placeholder="Narasi deskriptif akan muncul otomatis..."></textarea>
+                        </div>
+                        <div id="action_buttons" class="space-y-2 locked-section">
+                            <button id="btnSaveJudgement" onclick="saveJudgement()" class="w-full py-4 gradient-bg text-white font-black rounded shadow-lg hover:shadow-emerald-500/20 active:scale-95 transition-all uppercase tracking-widest text-[10px] flex items-center justify-center gap-2"><span>SIMPAN & KUNCI NILAI</span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M8 7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" stroke-width="2"/></svg></button>
+                            <button id="btnRequestUnlock" onclick="requestUnlock()" class="hidden w-full py-4 bg-amber-500 text-white font-black rounded shadow-lg hover:bg-amber-600 transition-all uppercase tracking-widest text-[10px] flex items-center justify-center gap-2"><span>AJUKAN PERBAIKAN</span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-width="2"/></svg></button>
+                            <button id="btnResetDraft" onclick="resetLocalDraft()" class="w-full py-2 bg-slate-200 text-slate-600 font-bold rounded uppercase tracking-widest text-[9px] hover:bg-rose-100 hover:text-rose-600 transition-colors">RESET ISIAN</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- DATABASE SECTION -->
+            <section id="database" class="tab-content space-y-4 fade-in max-w-6xl mx-auto px-4 py-6 w-full">
+                <div class="flex flex-col md:flex-row justify-between items-end gap-4 bg-white p-5 rounded border border-slate-200 shadow-sm">
+                    <div class="w-full md:w-auto">
+                        <h2 class="text-lg font-black text-slate-800 uppercase tracking-tight mb-3">Rekapitulasi Nilai Pentas PAI</h2>
+                        <div class="flex flex-wrap gap-2">
+                            <select id="db_filter_lomba" onchange="updateResultsTable()" class="px-3 py-2 border border-slate-300 rounded text-[10px] font-bold bg-slate-50 uppercase outline-none focus:border-emerald-600"><option value="all">Semua Cabang</option><option value="mtq">MTQ</option><option value="mhq">MHQ</option><option value="pildacil">Pildacil</option></select>
+                            <button onclick="exportToExcel()" class="bg-emerald-700 text-white px-4 py-2 rounded font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-800 transition-all shadow-sm"><svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke-width="2"/></svg>UNDUH XLSX</button>
+                            <button onclick="exportToPDF()" class="bg-rose-700 text-white px-4 py-2 rounded font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-rose-800 transition-all shadow-sm"><svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" stroke-width="2"/></svg>UNDUH PDF</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto custom-scrollbar">
+                        <table class="w-full text-left border-collapse min-w-[1000px]">
+                            <thead class="bg-slate-50 border-b border-slate-200">
+                                <tr class="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                    <th class="px-6 py-4 text-center sort-active" onclick="handleSort('noUndian')">No. Undian</th>
+                                    <th class="px-6 py-4 text-slate-800 sort-inactive" onclick="handleSort('name')">Nama Peserta & Sekolah</th>
+                                    <th class="px-6 py-4 sort-inactive" onclick="handleSort('lname')">Cabang Lomba</th>
+                                    <th class="px-6 py-4 text-center sort-inactive" onclick="handleSort('j1')">Juri 1</th>
+                                    <th class="px-6 py-4 text-center sort-inactive" onclick="handleSort('j2')">Juri 2</th>
+                                    <th class="px-6 py-4 text-center sort-inactive" onclick="handleSort('avg')">Skor Akhir</th>
+                                    <th class="px-6 py-4 text-center">Peringkat</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsTableBody" class="divide-y divide-slate-100 text-[11px] font-bold text-slate-700"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MANAGEMENT SECTION -->
+            <section id="management" class="tab-content space-y-6 fade-in max-w-6xl mx-auto px-4 py-6 w-full">
+                <div class="bg-white p-6 rounded border border-amber-200 shadow-sm space-y-4">
+                    <div class="flex justify-between items-center border-b pb-3 border-amber-100">
+                        <h3 class="font-black uppercase tracking-tight text-amber-800 flex items-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg> Permintaan Buka Kunci Nilai</h3>
+                        <span id="requestCount" class="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black">0 Pending</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead><tr class="text-[9px] font-black text-slate-400 uppercase bg-slate-50"><th class="px-4 py-3">Waktu</th><th class="px-4 py-3">Juri Pemohon</th><th class="px-4 py-3">Nomor Undian</th><th class="px-4 py-3">Status</th><th class="px-4 py-3 text-center">Aksi</th></tr></thead>
+                            <tbody id="requestsTableBody" class="text-[11px] font-medium text-slate-700 divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div class="lg:col-span-4 bg-white p-6 rounded border border-slate-200 shadow-sm space-y-5 text-slate-800">
+                        <h3 id="formAccountTitle" class="font-black uppercase tracking-tight text-slate-800 border-b pb-3">Registrasi Akun</h3>
+                        <div class="space-y-3">
+                            <div><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Username</label><input type="text" id="m_username" class="w-full px-3 py-2 rounded border border-slate-200 font-bold outline-none focus:border-emerald-600 bg-slate-50" placeholder="ID Akun Baru"></div>
+                            <div><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Password</label><div class="relative"><input type="password" id="m_password" class="w-full px-3 py-2 pr-10 rounded border border-slate-200 font-bold outline-none focus:border-emerald-600 bg-slate-50" placeholder="••••••••"><button type="button" onclick="togglePassword('m_password', 'eye_icon_reg')" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 p-1.5"><svg id="eye_icon_reg" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button></div></div>
+                            <div><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Role</label><select id="m_role" class="w-full px-3 py-2 rounded border border-slate-200 font-bold uppercase text-[10px] outline-none bg-slate-50"><option value="juri">Juri</option><option value="admin">Admin</option><option value="super_admin">Super Admin</option></select></div>
+                            <div id="m_lomba_container"><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Tugas Cabang</label><select id="m_lomba" class="w-full px-3 py-2 rounded border border-slate-300 font-bold uppercase text-[10px] outline-none bg-slate-50"><option value="mtq">MTQ</option><option value="mhq">MHQ</option><option value="pildacil">Pildacil</option></select></div>
+                            <div id="m_juri_no_container"><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Posisi Juri</label><select id="m_juri_no" class="w-full px-3 py-2 rounded border border-slate-300 font-bold uppercase text-[10px] outline-none bg-slate-50"><option value="1">Juri 1</option><option value="2">Juri 2</option></select></div>
+                            <div class="flex gap-2 mt-2"><button onclick="createUserAccount()" id="btnSubmitAccount" class="flex-grow py-3 bg-emerald-950 text-white font-black rounded shadow active:scale-[0.95] uppercase tracking-widest text-[9px]">SIMPAN AKUN</button><button onclick="cancelEdit()" id="btnCancelEdit" class="hidden py-3 px-4 bg-slate-200 text-slate-600 font-black rounded uppercase tracking-widest text-[9px]">BATAL</button></div>
+                        </div>
+                    </div>
+                    <div class="lg:col-span-8 bg-white rounded border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                        <div class="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 class="font-black uppercase tracking-widest text-[10px] text-slate-800">Daftar Akun Pengguna</h3>
+                        <div class="flex items-center gap-2">
+                            <span id="userCount" class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[9px] font-black mr-2">0 Akun</span>
+                            <button onclick="openImportChoice()" title="Impor dari XLSX" class="p-2 bg-white border border-slate-200 rounded text-slate-600 hover:text-emerald-600 transition-all shadow-sm"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 4v16m8-8H4" stroke-width="2"/></svg></button>
+                            <button onclick="exportAccountsToExcel()" title="Ekspor ke XLSX" class="p-2 bg-white border border-slate-200 rounded text-slate-600 hover:text-emerald-600 transition-all shadow-sm"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke-width="2"/></svg></button>
+                        </div>
+                    </div>
+                    <div class="overflow-auto custom-scrollbar max-h-[500px] relative"><table class="w-full text-left border-collapse"><thead class="sticky top-0 z-10 shadow-sm"><tr class="text-[9px] font-black text-slate-400 uppercase tracking-widest"><th class="px-4 py-3 bg-slate-100 text-center">No</th><th class="px-4 py-3 bg-slate-100 text-center">Status</th><th class="px-4 py-3 bg-slate-100">Username</th><th class="bg-slate-100">Password</th><th class="bg-slate-100">Role</th><th class="bg-slate-100">Tugas</th><th class="bg-slate-100">No Juri</th><th class="text-center bg-slate-100">Aksi</th></tr></thead><tbody id="usersTableBody" class="divide-y divide-slate-50 text-[11px] text-slate-700 font-medium"></tbody></table></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="detailScoringModal" class="fixed inset-0 bg-slate-900/90 z-[9999] flex items-center justify-center p-4 hidden backdrop-blur-md">
+        <div class="bg-white rounded max-w-[450px] w-full overflow-hidden shadow-2xl modal-enter">
+            <div class="p-6 border-b border-slate-100">
+                <h3 id="detailModalTitle" class="text-base font-black text-slate-900 uppercase tracking-tight">Detail Justifikasi Skor</h3>
+                <p id="detailModalSubtitle" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"></p>
+            </div>
+            <div id="detailModalBody" class="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-4">
+                <div id="detailIndicatorGrid" class="grid grid-cols-2 gap-2 border-b pb-4 border-slate-100"></div>
+                <div>
+                    <label class="block text-[8px] font-black uppercase text-slate-400 mb-2">Narasi Justifikasi Juri:</label>
+                    <p id="detailModalComment" class="text-[11px] font-medium leading-relaxed text-slate-700 bg-slate-50 p-4 rounded border border-slate-100"></p>
+                </div>
+            </div>
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+                <button onclick="closeDetailModal()" class="px-6 py-2 bg-emerald-950 text-white font-black uppercase tracking-widest text-[9px] rounded">TUTUP</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="choiceModal" class="fixed inset-0 bg-slate-900/90 z-[9999] flex items-center justify-center p-4 hidden backdrop-blur-md">
+        <div class="bg-white rounded max-w-[320px] w-full overflow-hidden shadow-2xl modal-enter">
+            <div class="p-6 text-center border-b border-slate-100">
+                <div id="choiceIcon" class="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center bg-emerald-50 text-emerald-600"></div>
+                <h3 id="choiceTitle" class="text-base font-black text-slate-900 uppercase tracking-tight mb-1"></h3>
+                <p id="choiceSubtitle" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest"></p>
+            </div>
+            <div id="choiceContainer" class="p-2 bg-slate-50 flex flex-col gap-1"></div>
+            <div class="p-2 border-t border-slate-100">
+                <button onclick="closeChoiceModal()" class="w-full py-3 text-slate-400 font-black uppercase tracking-widest text-[9px] hover:text-rose-500 transition-colors">BATAL</button>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="importFileInput" class="hidden" accept=".xlsx, .xls">
+
+    <div id="modal" class="fixed inset-0 bg-slate-900/90 z-[9999] flex items-center justify-center p-4 hidden backdrop-blur-md">
+        <div class="bg-white rounded max-w-[300px] w-full p-8 shadow-2xl border border-slate-200 text-center">
+            <div id="modal-icon" class="w-16 h-16 rounded-full mx-auto mb-6 flex items-center justify-center shadow-sm"></div>
+            <h3 id="modal-title" class="text-base font-black text-slate-900 uppercase tracking-tight mb-2"></h3>
+            <p id="modal-msg" class="text-slate-500 text-[11px] font-medium leading-relaxed mb-6"></p>
+            <button onclick="closeModal()" class="w-full py-3 bg-emerald-950 text-white rounded font-black uppercase tracking-widest text-[9px] shadow-lg active:scale-[0.95] transition-all">SAYA MENGERTI</button>
+        </div>
+    </div>
+
+    <footer id="footer" class="w-full border-t border-slate-200 mt-auto py-6 bg-white hidden text-center"><div class="flex flex-col items-center gap-1 opacity-40"><img src="https://raw.githubusercontent.com/edibrata/image/main/Logo%20Pentas%20PAI-1.png" alt="Logo" class="h-8 w-auto"><span class="text-[8px] font-black uppercase tracking-[0.3em]">PENTAS PAI 2026 — Developed by Edi Brata</span></div></footer>
+
+    <script>
+        const LOMBA_MAP = {
+            mtq: { name: "MTQ", count: 1 },
+            mhq: { name: "MHQ", count: 1 },
+            pildacil: { name: "PILDACIL", count: 1 }
+        };
+
+        const UNDIAN_MAP = {
+            "SDN KARYASARI 1": 1, "SDN SIDAMUKTI 4": 2, "SDN CIBUNGUR 3": 3, "SDN SIDAMUKTI 1": 4, "SDN KARYASARI 4": 5, "SDN PERDANA 2": 6, "SDN CIBUNGUR 2": 7, "SDN PERDANA 1": 8, "SDN KARYASARI 2": 9, "SDN PASIRKADU 1": 10, "SDN PASIRKADU 3": 11, "SDN SIDAMUKTI 3": 12, "SDN WERU 2": 13, "SDN SUKARESMI 2": 14, "SDN SEUSEUPAN 1": 15, "SDN CIBUNGUR 1": 16, "SDN PERDANA 3": 17, "SDN KUBANGKAMPIL 1": 18, "SDN SIDAMUKTI 2": 19, "SDN CIKUYA 2": 20, "SDN SUKARESMI 1": 21, "SDN CIKUYA 1": 22, "SDN WERU 1": 23, "SDN KUBANGKAMPIL 2": 24, "SDN CIKUYA 3": 25, "SDN PASIRKADU 2": 26, "SDN PASIRKADU 4": 27
+        };
+
+        const RUBRIK_DATA = {
+            mtq: {
+                title: "MTQ",
+                aspek: { a: "Suara & Lagu (40%)", b: "Bidang Tajwid (30%)", c: "Makhorijul & Fashohah (30%)" },
+                a1: { name: "Kualitas Suara", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Sangat jernih, merdu, power mantap." }, 3: { label: "BAIK", range: [80, 85], desc: "Jernih, namun power kurang stabil." }, 2: { label: "CUKUP", range: [70, 75], desc: "Serak, volume sedang." }, 1: { label: "KURANG", range: [60, 65], desc: "Suara lemah/serak mengganggu." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                a2: { name: "Susunan Lagu & Variasi", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Komposisi 3 lagu utuh & indah." }, 3: { label: "BAIK", range: [80, 85], desc: "Lagu utuh tapi variasi standar." }, 2: { label: "CUKUP", range: [70, 75], desc: "Lagu kurang utuh/tidak harmonis." }, 1: { label: "KURANG", range: [60, 65], desc: "Irama tidak beraturan." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                a3: { name: "Keserasian & Harmonisasi", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Transisi nada Qarar-Jawab mulus." }, 3: { label: "BAIK", range: [80, 85], desc: "Harmonisasi baik, transisi kaku." }, 2: { label: "CUKUP", range: [70, 75], desc: "Nada tidak sinkron dengan irama." }, 1: { label: "KURANG", range: [60, 65], desc: "Banyak nada sumbang/fals." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                a4: { name: "Pengaturan Nafas", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Sangat panjang & terkontrol." }, 3: { label: "BAIK", range: [80, 85], desc: "Cukup panjang, sedikit tegang." }, 2: { label: "CUKUP", range: [70, 75], desc: "Sering terputus di tengah kalimat." }, 1: { label: "KURANG", range: [60, 65], desc: "Sangat pendek, lagu tak selesai." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                b1: { name: "Ahkamul Huruf", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Sempurna (Nun/Mim, Mad, Ra/Lam)." }, 3: { label: "BAIK", range: [80, 85], desc: "Benar, namun ketukan tak konsisten." }, 2: { label: "CUKUP", range: [70, 75], desc: "Sering keliru Ghunnah/Mad Far'i." }, 1: { label: "KURANG", range: [60, 65], desc: "Banyak kesalahan fatal tajwid dasar." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                b2: { name: "Ahkamul Madd wal Qashr", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Sangat konsisten & akurat." }, 3: { label: "BAIK", range: [80, 85], desc: "Ukuran benar, ketukan kadang slip." }, 2: { label: "CUKUP", range: [70, 75], desc: "Ukuran Mad sering tertukar." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak paham kaidah Mad." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                b3: { name: "Ghunnah & Qalqalah", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Jelas, tepat, and konsisten." }, 3: { label: "BAIK", range: [80, 85], desc: "1-2 kesalahan kecil penerapan." }, 2: { label: "CUKUP", range: [70, 75], desc: "Beberapa kesalahan dengung/pantul." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak sesuai kaidah/samar." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                c1: { name: "Makhorijul Huruf", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Artikulasi sangat jelas & tepat." }, 3: { label: "BAIK", range: [80, 85], desc: "Benar tapi kurang tegas pengucapan." }, 2: { label: "CUKUP", range: [70, 75], desc: "Kerancuan huruf berdekatan." }, 1: { label: "KURANG", range: [60, 65], desc: "Kesalahan makhraj fatal/cadel." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                c2: { name: "Sifatul Huruf", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Sempurna (Hams, Isti'la, dll)." }, 3: { label: "BAIK", range: [80, 85], desc: "Terdengar tapi kurang tajam." }, 2: { label: "CUKUP", range: [70, 75], desc: "Samar atau tidak konsisten." }, 1: { label: "KURANG", range: [60, 65], desc: "Sifat huruf hilang sama sekali." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                c3: { name: "Waqf wal Ibtida'", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Sangat tepat tanpa memutus makna." }, 3: { label: "BAIK", range: [80, 85], desc: "Benar, tapi nafas tidak ideal." }, 2: { label: "CUKUP", range: [70, 75], desc: "Waqf Qabih atau mengulang keliru." }, 1: { label: "KURANG", range: [60, 65], desc: "Berhenti di tengah kata/rusak makna." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                c4: { name: "Kelancaran & Kefasihan", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Sangat lancar & fasih." }, 3: { label: "BAIK", range: [80, 85], desc: "Lancar dengan sedikit slip lidah." }, 2: { label: "CUKUP", range: [70, 75], desc: "Tersendat atau sering ragu." }, 1: { label: "KURANG", range: [60, 65], desc: "Banyak kesalahan kelancaran/lupa." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                c5: { name: "Etika & Prosedur (Adab)", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Mematuhi seluruh tata tertib." }, 3: { label: "BAIK", range: [80, 85], desc: "Patuh, namun grogi mempengaruhi." }, 2: { label: "CUKUP", range: [70, 75], desc: "Ada kesalahan prosedur." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak mengindahkan adab/hakim." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } }
+            },
+            mhq: {
+                title: "MHQ",
+                aspek: { a: "Bidang Tahfidz (50%)", b: "Bidang Tajwid (25%)", c: "Bidang Fashahah & Adab (25%)" },
+                a1: { name: "Kelancaran Bacaan", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Bacaan sangat lancar, tanpa ragu, and tanpa teguran juri." }, 3: { label: "BAIK", range: [80, 85], desc: "Lancar, terdapat 1-2 kali keraguan kecil namun bisa lanjut sendiri." }, 2: { label: "CUKUP", range: [70, 75], desc: "Terdapat 1-2 kali salah/lupa yang memerlukan pancingan juri." }, 1: { label: "KURANG", range: [60, 65], desc: "Banyak kesalahan atau tidak bisa melanjutkan ayat meski dipancing." }, 0: { label: "TIDAK DINILAI", desc: "Gagal total dalam kelancaran" } },
+                a2: { name: "Ketepatan Sambung Ayat", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Menyambung ayat sempurna tanpa ada lompatan atau tertukar." }, 3: { label: "BAIK", range: [80, 85], desc: "Mampu menyambung dengan benar, namun sempat ragu di awal." }, 2: { label: "CUKUP", range: [70, 75], desc: "Salah menyambung namun segera memperbaiki setelah isyarat juri." }, 1: { label: "KURANG", range: [60, 65], desc: "Gagal menyambung ayat atau melompat ke surat lain secara fatal." }, 0: { label: "TIDAK DINILAI", desc: "Gagal menyambung ayat" } },
+                a3: { name: "Muraja'ah & Itqan", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Hafalan sangat matang (itqan), tidak ada kesalahan harakat/akhiran." }, 3: { label: "BAIK", range: [80, 85], desc: "Hafalan matang, terdapat 1-2 kesalahan harakat ringan." }, 2: { label: "CUKUP", range: [70, 75], desc: "Sering salah harakat atau diingatkan juri terkait urutan ayat." }, 1: { label: "KURANG", range: [60, 65], desc: "Hafalan tidak matang, banyak kesalahan struktural dalam ayat." }, 0: { label: "TIDAK DINILAI", desc: "Kualitas hafalan sangat buruk" } },
+                b1: { name: "Makhorijul & Sifatul Huruf", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Pelafalan huruf sangat tepat sesuai makhraj and sifatnya." }, 3: { label: "BAIK", range: [80, 85], desc: "Pelafalan huruf konsisten benar, hanya ada 1-2 ketidaktelitian kecil." }, 2: { label: "CUKUP", range: [70, 75], desc: "Ada beberapa kesalahan makhraj (misal: Ha/Kha atau Sin/Syin)." }, 1: { label: "KURANG", range: [60, 65], desc: "Banyak kesalahan makhraj yang mengubah makna secara signifikan." }, 0: { label: "TIDAK DINILAI", desc: "Gagal total dalam tajwid" } },
+                b2: { name: "Hukum Mad & Qashr", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Konsisten dalam menentukan panjang pendek (2, 4, 5, atau 6 harakat)." }, 3: { label: "BAIK", range: [80, 85], desc: "Umumnya benar, namun tidak konsisten pada durasi mad tertentu." }, 2: { label: "CUKUP", range: [70, 75], desc: "Sering terjadi kesalahan panjang-pendek pada mad thabi'i." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak menguasai hukum mad, pembacaan cenderung datar atau asal." }, 0: { label: "TIDAK DINILAI", desc: "Tidak menerapkan hukum mad" } },
+                b3: { name: "Nun/Mim Mati & Ghunnah", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Dengung (ghunnah) sempurna pada Ikhfa, Idgham, and Iqlab." }, 3: { label: "BAIK", range: [80, 85], desc: "Hukum nun/mim mati benar, namun durasi dengung kurang lama." }, 2: { label: "CUKUP", range: [70, 75], desc: "Sering melewatkan ghunnah atau tertukar Bigunnah/Bilagunnah." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak menerapkan hukum dengung sama sekali dalam bacaan." }, 0: { label: "TIDAK DINILAI", desc: "Tidak menerapkan dengung" } },
+                c1: { name: "Waqf wal Ibtida'", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Berhenti and memulai kembali di tempat tepat tanpa merusak makna." }, 3: { label: "BAIK", range: [80, 85], desc: "Umumnya tepat, hanya 1-2 kali berhenti di tempat kurang pas." }, 2: { label: "CUKUP", range: [70, 75], desc: "Sering memutus nafas di tempat yang dilarang (Waqf Qabih)." }, 1: { label: "KURANG", range: [60, 65], desc: "Berhenti and memulai secara acak tanpa memperhatikan makna." }, 0: { label: "TIDAK DINILAI", desc: "Waqf Ibtida rusak total" } },
+                c2: { name: "Suara & Irama (Murottal)", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Suara jernih, merdu, and irama (naghom) yang harmonis/stabil." }, 3: { label: "BAIK", range: [80, 85], desc: "Suara cukup baik and irama stabil namun kurang variasi." }, 2: { label: "CUKUP", range: [70, 75], desc: "Suara sering terputus (nafas pendek) atau irama tidak stabil." }, 1: { label: "KURANG", range: [60, 65], desc: "Suara tidak terdengar jelas atau tanpa irama murottal." }, 0: { label: "TIDAK DINILAI", desc: "Suara/Irama tidak memadai" } },
+                c3: { name: "Adab & Kerapihan", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Mengikuti seluruh prosedur, pakaian sopan, and tenang." }, 3: { label: "BAIK", range: [80, 85], desc: "Mengikuti prosedur, namun terlihat gugup atau kurang tenang." }, 2: { label: "CUKUP", range: [70, 75], desc: "Melewatkan salah satu prosedur (misal: lupa Taawwud/Tasdiq)." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak menjaga etika (posisi duduk atau pakaian kurang pantas)." }, 0: { label: "TIDAK DINILAI", desc: "Adab sangat buruk" } }
+            },
+            pildacil: {
+                title: "PILDACIL",
+                aspek: { a: "Isi / Bobot Materi (40%)", b: "Retorika dan Mimik (30%)", c: "Penampilan dan Adab (30%)" },
+                a1: { name: "Kesesuaian Tema & Materi", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Materi sangat relevan dengan tema and memiliki struktur yang sangat rapi." }, 3: { label: "BAIK", range: [80, 85], desc: "Materi relevan dengan tema, struktur cukup jelas." }, 2: { label: "CUKUP", range: [70, 75], desc: "Materi kurang fokus pada tema, struktur kurang tertata." }, 1: { label: "KURANG", range: [60, 65], desc: "Materi tidak sesuai dengan tema yang dipilih." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak tampil / Gagal total" } },
+                a2: { name: "Dalil (Al-Quran/Hadits)", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Menyertakan dalil dengan pelafalan yang fasih beserta artinya." }, 3: { label: "BAIK", range: [80, 85], desc: "Menyertakan dalil dengan pelafalan yang cukup baik." }, 2: { label: "CUKUP", range: [70, 75], desc: "Dalil ada, namun pelafalan kurang tepat." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak menyertakan dalil pendukung." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                a3: { name: "Pesan Moral / Hikmah", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Pesan sangat menyentuh, aplikatif, and mudah dipahami." }, 3: { label: "BAIK", range: [80, 85], desc: "Ada pesan moral yang jelas and bermanfaat." }, 2: { label: "CUKUP", range: [70, 75], desc: "Pesan kurang tajam atau sulit dipahami audiens." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak ada pesan moral yang bisa diambil." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                b1: { name: "Intonasi & Artikulasi", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Suara sangat jelas, artikulasi tegas, and intonasi sangat dinamis." }, 3: { label: "BAIK", range: [80, 85], desc: "Suara jelas and intonasi cukup terjaga." }, 2: { label: "CUKUP", range: [70, 75], desc: "Suara kurang terdengar jelas atau intonasi monoton." }, 1: { label: "KURANG", range: [60, 65], desc: "Suara tidak terdengar jelas and monoton." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                b2: { name: "Mimik & Ekspresi", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Ekspresi wajah sangat menjiwai isi pidato (senang, sedih, tegas)." }, 3: { label: "BAIK", range: [80, 85], desc: "Ekspresi sesuai dengan isi teks secara umum." }, 2: { label: "CUKUP", range: [70, 75], desc: "Ekspresi kaku atau kurang sinkron." }, 1: { label: "KURANG", range: [60, 65], desc: "Wajah tanpa ekspresi (datar)." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                b3: { name: "Kelancaran Berbicara", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Berbicara sangat lancar, tanpa jeda lama, tanpa salah kata." }, 3: { label: "BAIK", range: [80, 85], desc: "Berbicara lancar dengan sedikit kekeliruan kecil." }, 2: { label: "CUKUP", range: [70, 75], desc: "Sering terhenti atau banyak menggunakan kata pengisi." }, 1: { label: "KURANG", range: [60, 65], desc: "Sering lupa teks atau terhenti lama." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                c1: { name: "Adab & Sopan Santun", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Menunjukkan adab dai yang sangat baik (salam, sikap, penutup)." }, 3: { label: "BAIK", range: [80, 85], desc: "Bersikap sopan and tenang di atas panggung." }, 2: { label: "CUKUP", range: [70, 75], desc: "Kurang memperhatikan adab (terburu-buru/tidak tenang)." }, 1: { label: "KURANG", range: [60, 65], desc: "Tidak memperhatikan etika di depan juri/audiens." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                c2: { name: "Kerapian & Kostum", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Pakaian sangat rapi, bersih, and sesuai identitas muslim." }, 3: { label: "BAIK", range: [80, 85], desc: "Pakaian rapi and cukup serasi." }, 2: { label: "CUKUP", range: [70, 75], desc: "Pakaian kurang rapi atau kurang sesuai tema." }, 1: { label: "KURANG", range: [60, 65], desc: "Pakaian tidak rapi atau tidak sesuai standar." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } },
+                c3: { name: "Kepercayaan Diri", 4: { label: "SANGAT BAIK", range: [90, 95], desc: "Penguasaan panggung sangat baik, kontak mata merata." }, 3: { label: "BAIK", range: [80, 85], desc: "Cukup percaya diri and melakukan kontak mata sesekali." }, 2: { label: "CUKUP", range: [70, 75], desc: "Kurang percaya diri (sering menunduk/satu arah)." }, 1: { label: "KURANG", range: [60, 65], desc: "Terlihat sangat gugup atau tidak berani menatap audiens." }, 0: { label: "TIDAK TAMPIL", desc: "Tidak dinilai" } }
+            }
+        };
+
+        let resultsSort = { col: 'noUndian', dir: 'asc' };
+
+        function handleSort(col) {
+            if (resultsSort.col === col) {
+                resultsSort.dir = resultsSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                resultsSort.col = col;
+                resultsSort.dir = 'asc';
+            }
+            updateResultsTable();
+        }
+
+        function togglePassword(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(iconId);
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88L4.222 4.222m15.556 15.556l-5.657-5.657m0 0a9.963 9.963 0 002.323-2.922c1.274-4.057-2.515-7-6.992-7a9.948 9.948 0 00-2.323.272" />';
+            } else {
+                input.type = 'password';
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+            }
+        }
+
+        async function handleLogin() {
+            const u = document.getElementById('login_user').value.toLowerCase().trim();
+            const p = document.getElementById('login_pass').value;
+            const remember = document.getElementById('rememberMe').checked;
+            const btn = document.getElementById('btnLogin');
+            if(!u || !p) { showModal("PERINGATAN", "Lengkapi Username & Password.", "error"); return; }
+            if(u === 'edi_super' && p === 'pentaspai2026') { 
+                window.currentUser = { username: u, role: 'super_admin', name: 'Edi Brata' }; 
+                if(remember) await saveSessionToCloud(u, p);
+                initDashboard(); return; 
+            }
+            if(!window.isAuthReady) return;
+            btn.innerText = "AUTHENTICATING..."; btn.disabled = true;
+            try {
+                const col = window.firestoreTools.collection(window.db, 'artifacts', window.customAppId, 'public', 'data', 'users');
+                const snap = await window.firestoreTools.getDoc(window.firestoreTools.doc(col, u));
+                if (snap.exists() && snap.data().password === p) {
+                    window.currentUser = { username: u, ...snap.data() };
+                    await window.firestoreTools.updateDoc(window.firestoreTools.doc(col, u), { lastActive: window.firestoreTools.serverTimestamp() });
+                    if(remember) await saveSessionToCloud(u, p);
+                    else await clearSessionFromCloud();
+                    initDashboard();
+                } else showModal("AKSES DITOLAK", "Akun tidak ditemukan atau password salah.", "error");
+            } catch (e) { showModal("ERROR", "Gangguan jaringan server.", "error"); }
+            finally { btn.innerText = "MASUK SISTEM"; btn.disabled = false; }
+        }
+
+        async function saveSessionToCloud(u, p) {
+            if(!window.auth.currentUser) return;
+            try { await window.firestoreTools.setDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'remembered_sessions', window.auth.currentUser.uid), { username: u, password: p, timestamp: window.firestoreTools.serverTimestamp() }); } catch (e) {}
+        }
+
+        async function clearSessionFromCloud() {
+            const uid = window.auth.currentUser?.uid;
+            if(!uid) return;
+            try { await window.firestoreTools.deleteDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'remembered_sessions', uid)); } catch (e) { }
+        }
+
+        function impersonateUser(id) {
+            const user = window.allUsers.find(u => u.id === id);
+            if (!user) return;
+            if (!window.realAdmin) window.realAdmin = { ...window.currentUser };
+            window.currentUser = { ...user, username: id, isSimulation: true };
+            initDashboard();
+            showModal("PENYAMARAN", `Anda menyamar sebagai ${id}.`, "success");
+        }
+
+        function stopImpersonation() {
+            if (window.realAdmin) {
+                window.currentUser = { ...window.realAdmin };
+                window.realAdmin = null;
+                initDashboard();
+                showModal("ADMIN", "Kembali ke akses Super Admin.", "success");
+            }
+        }
+
+        function initDashboard() {
+            document.getElementById('login-container').classList.remove('active');
+            document.getElementById('mainNav').classList.remove('hidden');
+            document.getElementById('authenticatedView').classList.remove('hidden');
+            document.getElementById('footer').classList.remove('hidden');
+            
+            const simBar = document.getElementById('impersonationBar');
+            if (window.currentUser.isSimulation) {
+                simBar.classList.remove('hidden');
+                document.getElementById('impersonatedName').innerText = window.currentUser.username;
+            } else {
+                simBar.classList.add('hidden');
+            }
+
+            document.getElementById('userBadge').innerText = window.currentUser.role.replace('_',' ');
+            const roles = window.currentUser.role;
+            const lid = window.currentUser.lombaId;
+            const jNo = window.currentUser.juriNo;
+
+            const labelCtx = document.getElementById('score_label_context');
+            if (labelCtx) {
+                labelCtx.innerText = "Belum Dinilai";
+                labelCtx.className = "text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] mb-2";
+            }
+
+            document.getElementById('nav-penilaian').classList.toggle('hidden', roles !== 'juri' && roles !== 'super_admin');
+            document.getElementById('nav-database').classList.toggle('hidden', roles !== 'admin' && roles !== 'super_admin');
+            document.getElementById('nav-management').classList.toggle('hidden', roles !== 'super_admin' || window.currentUser.isSimulation);
+
+            const materiContainer = document.getElementById('materi_container');
+            if (materiContainer) {
+                const isMateriRequired = (lid === 'mtq' || lid === 'pildacil');
+                materiContainer.classList.toggle('hidden', !isMateriRequired);
+                
+                if (isMateriRequired) {
+                    const dropdown = document.getElementById('judge_materi_select');
+                    const textInfo = document.getElementById('materi_readonly_display');
+                    const label = document.getElementById('materi_label');
+
+                    label.innerText = lid === 'mtq' ? 'Pilihan Maqra al-Qur’an' : 'Tema Pildacil';
+
+                    dropdown.innerHTML = lid === 'mtq' ? `
+                        <option value="">-- Pilih Maqra --</option>
+                        <option value="QS. Al-Baqarah: 183-184">QS. Al-Baqarah: 183-184</option>
+                        <option value="QS. Al-Mujadalah: 9-11">QS. Al-Mujadalah: 9-11</option>
+                        <option value="QS. Al-Isra: 1-6">QS. Al-Isra: 1-6</option>
+                        <option value="QS. Al-Hasyr: 18-24">QS. Al-Hasyr: 18-24</option>
+                    ` : `
+                        <option value="">-- Pilih Tema Pidato --</option>
+                        <option value="Mensyukuri Nikmat Allah SWT">Mensyukuri Nikmat Allah SWT</option>
+                        <option value="Cinta Tanah Air (Hubbul Wathon minal Iman)">Cinta Tanah Air (Hubbul Wathon)</option>
+                        <option value="Kejujuran sebagai Akhlak Mulia">Kejujuran sebagai Akhlak Mulia</option>
+                        <option value="Adab terhadap Orang Tua (Birrul Walidain)">Adab terhadap Orang Tua</option>
+                        <option value="Adab terhadap Guru">Adab terhadap Guru</option>
+                    `;
+
+                    if (jNo == "1" || roles === 'super_admin') {
+                        dropdown.classList.remove('hidden');
+                        textInfo.classList.add('hidden');
+                    } else {
+                        dropdown.classList.add('hidden');
+                        textInfo.classList.remove('hidden');
+                    }
+                }
+            }
+
+            if (roles === 'juri') { 
+                switchTab('penilaian');
+                document.getElementById('judgingTitle').innerText = LOMBA_MAP[lid]?.name || "Cabang Lomba"; 
+                document.getElementById('judgingRoleInfo').innerText = `JURI ${window.currentUser.juriNo}`; 
+            } else { 
+                switchTab('database'); 
+            }
+            
+            renderRubricCards();
+            updateJudgingParticipants(); updateResultsTable();
+            if(roles === 'super_admin') { updateUsersTable(); updateRequestsTable(); }
+        }
+
+        async function logout() { if(confirm("Logout dari sistem?")) location.reload(); }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-link').forEach(l => {
+                l.classList.remove('text-emerald-700', 'border-emerald-700');
+                l.classList.add('text-slate-400', 'border-transparent');
+            });
+            document.getElementById(tabId).classList.add('active');
+            const link = document.getElementById('nav-' + tabId);
+            if(link) {
+                link.classList.add('text-emerald-700', 'border-emerald-700');
+                link.classList.remove('text-slate-400', 'border-transparent');
+            }
+            if(tabId === 'penilaian') { 
+                setActiveAspect('a'); 
+                renderRubricCards(); 
+                updateJudgingParticipants(); 
+            }
+            if(tabId === 'database') updateResultsTable();
+            if(tabId === 'management') { cancelEdit(); updateUsersTable(); updateRequestsTable(); }
+        }
+
+        function handleManualParticipantChange() {
+            window.activeEditJuriNo = null;
+            const matSel = document.getElementById('judge_materi_select');
+            if (matSel) matSel.value = "";
+            const matText = document.getElementById('materi_text_val');
+            if (matText) matText.innerText = "Menunggu Juri 1...";
+            handleParticipantChange();
+        }
+
+        async function handleMateriChange() {
+            const sid = document.getElementById('judge_participant_select').value;
+            const lid = window.currentUser?.lombaId;
+            const jNo = window.activeEditJuriNo || window.currentUser?.juriNo || '1';
+            const val = document.getElementById('judge_materi_select').value;
+            
+            if (sid && (lid === 'pildacil' || lid === 'mtq')) {
+                const draftKey = `${sid}_${lid}_J${jNo}`;
+                if (!window.draftScores[draftKey]) window.draftScores[draftKey] = { granularScores: {}, justifications: {}, comment: "", theme: "" };
+                window.draftScores[draftKey].theme = val;
+
+                if (jNo == "1" || window.currentUser?.role === 'super_admin') {
+                    const colName = lid === 'mtq' ? 'mtq_maqras' : 'pildacil_themes';
+                    const fieldName = lid === 'mtq' ? 'maqra' : 'theme';
+                    try {
+                        await window.firestoreTools.setDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', colName, sid), {
+                            [fieldName]: val,
+                            timestamp: window.firestoreTools.serverTimestamp()
+                        });
+                    } catch (e) { console.error("Gagal sinkron materi:", e); }
+                }
+            }
+            calculateLiveTotal();
+            generateNarrative();
+        }
+
+        window.handleThemeChange = handleMateriChange;
+
+        function handleParticipantChange() {
+            const sid = document.getElementById('judge_participant_select').value;
+            const scoringSection = document.getElementById('rubric_scoring_container');
+            const navSection = document.getElementById('aspect_nav_container');
+            const commentSection = document.getElementById('comment_section');
+            const actionSection = document.getElementById('action_buttons');
+
+            if (sid) {
+                [scoringSection, navSection, commentSection, actionSection].forEach(el => {
+                    el.classList.add('unlocked-section'); el.classList.remove('locked-section');
+                });
+                loadExistingScore();
+                updateLockUI();
+            } else {
+                [scoringSection, navSection, commentSection, actionSection].forEach(el => {
+                    el.classList.add('locked-section'); el.classList.remove('unlocked-section');
+                });
+                clearScoreInputs();
+            }
+        }
+
+        function updateLockUI() {
+            const sid = document.getElementById('judge_participant_select').value;
+            const actionSection = document.getElementById('action_buttons');
+            const commentSection = document.getElementById('comment_section');
+            const resetBtn = document.getElementById('btnResetDraft');
+            
+            if (!sid || !window.currentUser) return;
+
+            const lid = window.currentUser.lombaId || 'mtq';
+
+            if (window.currentUser.role === 'super_admin') {
+                document.getElementById('btnSaveJudgement').classList.remove('hidden');
+                document.getElementById('btnRequestUnlock').classList.add('hidden');
+                document.getElementById('rubric_scoring_container').classList.remove('locked-section');
+                if (resetBtn) resetBtn.classList.remove('hidden');
+                return;
+            }
+
+            const jNo = window.activeEditJuriNo || window.currentUser.juriNo || "1";
+            const jId = window.currentUser.username;
+            const dbDocId = `${sid}_${lid}_J${jNo}`;
+
+            const isLocked = window.scores.some(s => s.id === dbDocId);
+            const hasApproval = window.requests.some(r => r.juriId === jId && r.submissionId === sid && r.status === 'approved');
+
+            if (isLocked && !hasApproval) {
+                document.getElementById('btnSaveJudgement').classList.add('hidden');
+                document.getElementById('btnRequestUnlock').classList.remove('hidden');
+                document.getElementById('rubric_scoring_container').classList.add('locked-section');
+                if (resetBtn) resetBtn.classList.add('hidden');
+            } else {
+                document.getElementById('btnSaveJudgement').classList.remove('hidden');
+                document.getElementById('btnRequestUnlock').classList.add('hidden');
+                document.getElementById('rubric_scoring_container').classList.remove('locked-section');
+                if (resetBtn) resetBtn.classList.remove('hidden');
+            }
+        }
+
+        async function requestUnlock() {
+            const sid = document.getElementById('judge_participant_select').value;
+            if(!sid) return;
+            if(confirm("Ajukan permintaan buka kunci nilai untuk peserta ini kepada Admin?")) {
+                try {
+                    const jId = window.currentUser.username;
+                    const lid = window.currentUser.lombaId || 'mtq';
+                    const reqId = `${jId}_${sid}`;
+                    await window.firestoreTools.setDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'requests', reqId), {
+                        juriId: jId,
+                        submissionId: sid,
+                        lombaId: lid,
+                        status: 'pending',
+                        timestamp: window.firestoreTools.serverTimestamp()
+                    });
+                    showModal("TERKIRIM", "Permintaan telah diajukan. Silakan hubungi Admin untuk ACC.", "success");
+                } catch(e) { showModal("GAGAL", "Gagal mengajukan permintaan.", "error"); }
+            }
+        }
+
+        function setActiveAspect(key) {
+            document.querySelectorAll('.aspect-container').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.aspect-nav-btn').forEach(b => b.classList.remove('active'));
+            const container = document.getElementById(`container_aspek_${key}`);
+            const navBtn = document.getElementById(`nav_btn_${key}`);
+            if (container) container.classList.add('active');
+            if (navBtn) navBtn.classList.add('active');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function renderRubricCards() {
+            const lid = window.currentUser?.lombaId || 'mtq';
+            const rubrik = RUBRIK_DATA[lid];
+            if(!rubrik) return;
+
+            document.getElementById('label_aspek_a').innerText = rubrik.aspek.a;
+            document.getElementById('label_aspek_b').innerText = rubrik.aspek.b;
+            document.getElementById('label_aspek_c').innerText = rubrik.aspek.c;
+            document.getElementById('label_aspek_d').innerText = rubrik.aspek.d || "";
+            
+            document.getElementById('nav_label_a').innerText = rubrik.aspek.a;
+            document.getElementById('nav_label_b').innerText = rubrik.aspek.b;
+            document.getElementById('nav_label_c').innerText = rubrik.aspek.c;
+            document.getElementById('nav_label_d').innerText = rubrik.aspek.d || "";
+
+            const showD = !!rubrik.aspek.d;
+            document.getElementById('nav_btn_d').classList.toggle('hidden', !showD);
+            if (document.getElementById('btn_next_to_d')) document.getElementById('btn_next_to_d').classList.toggle('hidden', !showD);
+
+            let aspekGroups = {};
+            if (lid === 'mtq') aspekGroups = { a: ['a1','a2', 'a3', 'a4'], b: ['b1','b2', 'b3'], c: ['c1','c2', 'c3', 'c4', 'c5'] };
+            else if (lid === 'mhq') aspekGroups = { a: ['a1','a2', 'a3'], b: ['b1', 'b2', 'b3'], c: ['c1', 'c2', 'c3'] };
+            else if (lid === 'pildacil') aspekGroups = { a: ['a1','a2','a3'], b: ['b1','b2','b3'], c: ['c1','c2','c3'] };
+
+            Object.keys(aspekGroups).forEach(key => {
+                const container = document.getElementById(`cards_aspek_${key}`);
+                if (!container) return;
+                container.innerHTML = '';
+                aspekGroups[key].forEach((id, idx) => {
+                    const data = rubrik[id];
+                    if(!data) return;
+                    const availableLevels = Object.keys(data).filter(k => !isNaN(k)).map(Number).sort((a,b) => b-a);
+                    
+                    container.innerHTML += `
+                        <div class="rubric-card">
+                            <div class="rubric-header">
+                                <span class="text-[11px] font-black text-emerald-900 uppercase tracking-tight">${idx+1}. ${data.name}</span>
+                                <div class="flex items-center gap-2">
+                                    <span id="score_label_${id}" class="text-[9px] font-black text-slate-300">BELUM DINILAI</span>
+                                    <input type="number" id="manual_input_${id}" onchange="handleManualIntervalChange('${id}')" class="manual-score-input" step="0.01" placeholder="---">
+                                </div>
+                            </div>
+                            <div class="rubric-body" id="group_${id}">
+                                ${availableLevels.map(val => {
+                                    const displayTag = data[val].range ? `${data[val].range[0]}-${data[val].range[1]}` : val;
+                                    const isZero = val === 0;
+                                    return `
+                                        <div onclick="setIndicatorScore('${id}', ${val})" class="rubric-option ${isZero ? 'zero-option' : ''}" data-id="${id}" data-value="${val}">
+                                            <div class="rubric-radio"></div>
+                                            <div class="score-tag">${displayTag}</div>
+                                            <div class="flex-grow"><p class="rubric-desc">${data[val].desc}</p></div>
+                                        </div>
+                                        ${isZero ? `<textarea id="justification_${id}" oninput="handleJustificationInput('${id}')" class="justification-input" placeholder="Wajib: Tuliskan alasan teknis..."></textarea>` : ''}
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>`;
+                });
+            });
+        }
+
+        function handleManualIntervalChange(id) {
+            const input = document.getElementById(`manual_input_${id}`);
+            if (!input) return;
+            const val = parseFloat(input.value);
+            const activeOpt = document.querySelector(`.rubric-option[data-id="${id}"].active`);
+            if (activeOpt) {
+                const level = parseInt(activeOpt.dataset.value);
+                const lid = window.currentUser?.lombaId || 'mtq';
+                const range = RUBRIK_DATA[lid][id][level].range;
+                if (level > 0 && range) {
+                    if (val < range[0]) input.value = range[0].toFixed(2);
+                    if (val > range[1]) input.value = range[1].toFixed(2);
+                } else {
+                    input.value = "0.00";
+                }
+            }
+            calculateLiveTotal();
+            generateNarrative();
+        }
+
+        function setIndicatorScore(id, val) {
+            const sid = document.getElementById('judge_participant_select').value;
+            const lid = window.currentUser?.lombaId || 'mtq';
+            const jNo = window.activeEditJuriNo || window.currentUser?.juriNo || '1';
+            if (!sid) return;
+
+            const draftKey = `${sid}_${lid}_J${jNo}`;
+            if (!window.draftScores[draftKey]) window.draftScores[draftKey] = { granularScores: {}, justifications: {}, comment: "", theme: "" };
+            
+            const options = document.querySelectorAll(`.rubric-option[data-id="${id}"]`);
+            options.forEach(opt => opt.classList.toggle('active', parseInt(opt.dataset.value) === val));
+
+            const scoreDisplay = document.getElementById(`score_label_${id}`);
+            const manualInput = document.getElementById(`manual_input_${id}`);
+
+            const range = RUBRIK_DATA[lid][id][val].range;
+            const finalVal = range ? range[0] : 0;
+            if (manualInput) manualInput.value = finalVal.toFixed(2);
+            scoreDisplay.innerText = `${RUBRIK_DATA[lid][id][val].label}`;
+            scoreDisplay.className = `text-[9px] font-black ${val === 0 ? 'text-rose-600' : 'text-emerald-600'}`;
+            window.draftScores[draftKey].granularScores[id] = finalVal;
+
+            if(val === 0) setTimeout(() => document.getElementById(`justification_${id}`)?.focus(), 100);
+            calculateLiveTotal(); 
+            generateNarrative();
+        }
+
+        function handleJustificationInput(id) {
+            const sid = document.getElementById('judge_participant_select').value;
+            const lid = window.currentUser?.lombaId || 'mtq';
+            const jNo = window.activeEditJuriNo || window.currentUser?.juriNo || '1';
+            const draftKey = `${sid}_${lid}_J${jNo}`;
+            if (!window.draftScores[draftKey]) return;
+            window.draftScores[draftKey].justifications[id] = document.getElementById(`justification_${id}`).value;
+            
+            calculateLiveTotal();
+            generateNarrative();
+        }
+
+        function getIndicatorValue(id) {
+            const input = document.getElementById(`manual_input_${id}`);
+            const val = input ? parseFloat(input.value) : 0;
+            if (!isNaN(val) && val > 0) return val;
+            const activeOpt = document.querySelector(`.rubric-option[data-id="${id}"].active`);
+            if (activeOpt) {
+                const level = parseInt(activeOpt.dataset.value);
+                if (level === 0) return 0;
+                return val || 0;
+            }
+            return null;
+        }
+
+        function calculateLiveTotal() {
+            const lid = window.currentUser?.lombaId || 'mtq';
+            const jNo = window.currentUser?.juriNo || '1';
+            let indicators = {};
+            if (lid === 'mtq') indicators = { a: ['a1','a2','a3','a4'], b: ['b1','b2','b3'], c: ['c1','c2','c3','c4','c5'] };
+            else if (lid === 'mhq') indicators = { a: ['a1','a2', 'a3'], b: ['b1', 'b2', 'b3'], c: ['c1', 'c2', 'c3'] };
+            else if (lid === 'pildacil') indicators = { a: ['a1','a2','a3'], b: ['b1','b2','b3'], c: ['c1','c2','c3'] };
+            
+            const averages = {};
+            let totalIndicators = 0, filledIndicators = 0;
+            let zeroWithoutJustification = 0;
+
+            Object.keys(indicators).forEach(key => {
+                let currentAspekFilled = 0;
+                indicators[key].forEach(id => {
+                    const val = getIndicatorValue(id);
+                    const activeOpt = document.querySelector(`.rubric-option[data-id="${id}"].active`);
+                    
+                    if (val !== null) {
+                        if (activeOpt && parseInt(activeOpt.dataset.value) === 0) {
+                            const justText = document.getElementById(`justification_${id}`)?.value.trim() || "";
+                            if (justText.length > 0) {
+                                currentAspekFilled++;
+                                document.getElementById(`justification_${id}`)?.classList.remove('invalid-alert');
+                            } else {
+                                zeroWithoutJustification++;
+                                document.getElementById(`justification_${id}`)?.classList.add('invalid-alert');
+                            }
+                        } else {
+                            currentAspekFilled++;
+                        }
+                    }
+                });
+
+                const isComplete = currentAspekFilled === indicators[key].length && zeroWithoutJustification === 0;
+                totalIndicators += indicators[key].length;
+                filledIndicators += currentAspekFilled;
+                
+                const progEl = document.getElementById(`prog_${key}`);
+                if (progEl) progEl.innerText = `${currentAspekFilled}/${indicators[key].length} Terisi`;
+                
+                const navBtn = document.getElementById(`nav_btn_${key}`);
+                if (navBtn) {
+                    navBtn.classList.toggle('completed', isComplete);
+                    if (currentAspekFilled > 0 && !isComplete) {
+                        navBtn.style.backgroundColor = '#fff1f2'; 
+                        navBtn.style.borderColor = '#fda4af';
+                    } else if (isComplete) {
+                        navBtn.style.backgroundColor = '#f0fdf4';
+                        navBtn.style.borderColor = '#bbf7d0';
+                    } else {
+                        navBtn.style.backgroundColor = '';
+                        navBtn.style.borderColor = '';
+                    }
+                }
+                
+                const vls = indicators[key].map(id => getIndicatorValue(id)).filter(v => v !== null);
+                averages[key] = vls.length > 0 ? vls.reduce((a, b) => a + b, 0) / indicators[key].length : 0;
+            });
+
+            let materiMissing = false;
+            const sid = document.getElementById('judge_participant_select').value;
+            const draftKey = `${sid}_${lid}_J${jNo}`;
+            const draft = window.draftScores[draftKey];
+
+            if (lid === 'pildacil' || lid === 'mtq') {
+                if (jNo == "1") {
+                    const materiVal = document.getElementById('judge_materi_select').value;
+                    if (!materiVal) materiMissing = true;
+                } else if (jNo == "2") {
+                    const realTimeVal = lid === 'mtq' ? window.mtqMaqras[sid] : window.pildacilThemes[sid];
+                    if (!draft?.theme && !realTimeVal) materiMissing = true;
+                }
+            }
+
+            const remaining = totalIndicators - filledIndicators;
+            const labelCtx = document.getElementById('score_label_context');
+            const saveBtn = document.getElementById('btnSaveJudgement');
+
+            if (labelCtx) {
+                if (zeroWithoutJustification > 0) {
+                    labelCtx.innerText = `ALASAN SKOR 0 WAJIB ❗`;
+                    labelCtx.className = "text-[9px] font-black text-rose-600 uppercase tracking-[0.4em] mb-2 bg-rose-50 py-1 rounded";
+                    if(saveBtn) {
+                        saveBtn.disabled = true;
+                        saveBtn.innerText = "LENGKAPI ALASAN SKOR 0";
+                        saveBtn.className = "w-full py-4 bg-rose-400 text-white font-black rounded shadow-none cursor-not-allowed uppercase tracking-widest text-[10px]";
+                    }
+                } else if (materiMissing) {
+                    const materiLabel = lid === 'mtq' ? 'MAQRA' : 'TEMA';
+                    labelCtx.innerText = `${materiLabel} BELUM ADA ❗`;
+                    labelCtx.className = "text-[9px] font-black text-amber-600 uppercase tracking-[0.4em] mb-2 bg-amber-50 py-1 rounded";
+                    if(saveBtn) {
+                        saveBtn.disabled = true;
+                        saveBtn.innerText = jNo == "1" ? `PILIH ${materiLabel} DAHULU` : "MENUNGGU JURI 1...";
+                        saveBtn.className = "w-full py-4 bg-amber-400 text-white font-black rounded shadow-none cursor-not-allowed uppercase tracking-widest text-[10px]";
+                    }
+                } else if (filledIndicators === totalIndicators && totalIndicators > 0) {
+                    labelCtx.innerText = `SIAP DISIMPAN ✅`;
+                    labelCtx.className = "text-[9px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-2 bg-emerald-50 py-1 rounded";
+                    if(saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = '<span>SIMPAN & KUNCI NILAI</span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M8 7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" stroke-width="2"/></svg>';
+                        saveBtn.className = "w-full py-4 gradient-bg text-white font-black rounded shadow-lg hover:shadow-emerald-500/20 active:scale-95 transition-all uppercase tracking-widest text-[10px] flex items-center justify-center gap-2";
+                    }
+                } else if (filledIndicators > 0) {
+                    labelCtx.innerText = `SISA ${remaining} UNSUR LAGI ⚠️`;
+                    labelCtx.className = "text-[9px] font-black text-amber-500 uppercase tracking-[0.4em] mb-2 bg-amber-50 py-1 rounded";
+                    if(saveBtn) {
+                        saveBtn.disabled = true;
+                        saveBtn.innerText = "LENGKAPI SEMUA UNSUR";
+                        saveBtn.className = "w-full py-4 bg-slate-400 text-white font-black rounded shadow-none cursor-not-allowed uppercase tracking-widest text-[10px]";
+                    }
+                } else {
+                    labelCtx.innerText = "BELUM DINILAI";
+                    labelCtx.className = "text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] mb-2";
+                    if(saveBtn) {
+                        saveBtn.disabled = true;
+                        saveBtn.innerText = "PILIH NILAI DAHULU";
+                        saveBtn.className = "w-full py-4 bg-slate-400 text-white font-black rounded shadow-none cursor-not-allowed uppercase tracking-widest text-[10px]";
+                    }
+                }
+            }
+            
+            let finalScore = 0;
+            if (lid === 'mtq') finalScore = (averages.a * 0.4) + (averages.b * 0.3) + (averages.c * 0.3);
+            else if (lid === 'mhq') finalScore = (averages.a * 0.5) + (averages.b * 0.25) + (averages.c * 0.25);
+            else if (lid === 'pildacil') finalScore = (averages.a * 0.4) + (averages.b * 0.3) + (averages.c * 0.3);
+            
+            document.getElementById('live_total_score').innerText = finalScore.toFixed(2);
+            return remaining + zeroWithoutJustification + (materiMissing ? 1 : 0);
+        }
+
+        // --- UPDATED NARRATIVE FUNCTIONS ---
+        function formatList(items, mode = "and") {
+            if (!items || items.length === 0) return "";
+            if (items.length === 1) return items[0];
+            const list = [...items];
+            const last = list.pop();
+            const connectors = mode === "and" ? ["serta", "dan", "juga"] : ["namun sayangnya", "tetapi", "akan tetapi"];
+            const connector = connectors[Math.floor(Math.random() * connectors.length)];
+            return list.join(", ") + " " + connector + " " + last;
+        }
+
+        function generateNarrative() {
+            const commentArea = document.getElementById('judge_comment');
+            const sid = document.getElementById('judge_participant_select').value;
+            const lid = window.currentUser?.lombaId || 'mtq';
+            const jNo = window.activeEditJuriNo || window.currentUser?.juriNo || '1';
+            const draftKey = `${sid}_${lid}_J${jNo}`;
+            const draft = window.draftScores[draftKey];
+            if (!draft || !RUBRIK_DATA[lid]) return;
+
+            const rubrik = RUBRIK_DATA[lid];
+            const noUndian = document.getElementById('displaySelectedNo').innerText;
+
+            // Dictionary Diksi Kontekstual
+            const dictionMap = {
+                // MTQ & MHQ
+                "a1": { "4": ["sangat merdu dan bertenaga", "sangat jernih serta memiliki power mantap"], "2": ["masih terdengar serak", "volumenya belum maksimal"], "1": ["memerlukan pembinaan vokal yang intensif"] },
+                "b1": { "4": ["sangat akurat dan tajwid yang presisi", "sangat tartil mengikuti kaidah ahkamul huruf"], "2": ["masih sering keliru pada penerapan tajwid dasar"], "1": ["membutuhkan pemahaman tajwid yang lebih mendalam"] },
+                "c1": { "4": ["sangat fasih dengan artikulasi makhraj yang tepat", "pelafalan hurufnya sangat mumpuni"], "2": ["pengucapan makhrajnya masih kurang tegas"], "1": ["masih sering terjadi kerancuan makhraj (cadel)"] },
+                "c4": { "4": ["sangat lancar dan meyakinkan", "menunjukkan kefasihan yang luar biasa"], "2": ["masih sering tersendat dan ragu"], "1": ["penguasaan lafaznya masih belum stabil"] },
+                // Pildacil
+                "a2": { "4": ["penguasaan dalil yang sangat fasih", "penyampaian dalil yang sangat akurat"], "2": ["pelafalan dalil masih perlu diperbaiki"], "1": ["belum menyertakan dalil pendukung"] },
+                "b1": { "4": ["intonasi yang dinamis dan bersemangat", "artikulasi bicara yang sangat tegas"], "2": ["gaya bicara masih terdengar monoton"], "1": ["suara belum terdengar jelas ke audiens"] },
+                "c1": { "4": ["menunjukkan adab dai yang sangat santun", "tata kramanya di panggung sangat berwibawa"], "2": ["terlihat kurang tenang saat tampil"], "1": ["etika di panggung masih perlu bimbingan"] }
+            };
+
+            const getNaturalLabel = (id, val) => {
+                const manualJust = draft.justifications[id]?.trim();
+                if (val === 0 && manualJust) return `tidak mendapat poin karena ${manualJust}`;
+                
+                const custom = dictionMap[id] ? dictionMap[id][String(Math.floor(val/20))] : null;
+                if (custom) return custom[Math.floor(Math.random() * custom.length)];
+
+                const genericMap = { 
+                    "SANGAT BAIK": ["sangat baik", "sangat menonjol", "terpola sangat rapi", "luar biasa baik", "terjaga sempurna"],
+                    "BAIK": ["cukup baik", "memadai", "terpola rapi", "cukup meyakinkan"],
+                    "CUKUP": ["masih perlu ditingkatkan", "standar", "cukup lancar namun belum stabil"],
+                    "KURANG": ["membutuhkan banyak latihan", "kurang fokus", "perlu banyak berlatih kembali"]
+                };
+                
+                let base = "biasa saja";
+                [4,3,2,1].forEach(lvl => { if(rubrik[id][lvl].range && val >= rubrik[id][lvl].range[0] && val <= rubrik[id][lvl].range[1]) base = rubrik[id][lvl].label; });
+                const choices = genericMap[base] || [base.toLowerCase()];
+                return choices[Math.floor(Math.random() * choices.length)];
+            };
+
+            let narrativeParts = [];
+            
+            // Header
+            const openingVariations = [
+                `Peserta nomor undian ${noUndian} tampil dengan performa yang cukup bersaing.`,
+                `Secara keseluruhan, penampilan peserta nomor undian ${noUndian} terlihat cukup kompetitif.`,
+                `Catatan dewan juri untuk penampilan nomor undian ${noUndian} adalah sebagai berikut.`
+            ];
+            narrativeParts.push(openingVariations[Math.floor(Math.random() * openingVariations.length)]);
+
+            if (draft.theme) {
+                const themePrefix = lid === 'pildacil' ? 'Membawakan materi bertema' : 'Melantunkan ayat suci pada maqra';
+                narrativeParts.push(`${themePrefix} "${draft.theme}", `);
+            }
+
+            // Grouping logic per Aspect
+            Object.keys(rubrik.aspek).forEach((aKey, idx) => {
+                let indicatorKeys = lid === 'mtq' ? {a:['a1','a2','a3','a4'],b:['b1','b2','b3'],c:['c1','c2','c3','c4','c5']} : 
+                                     lid === 'mhq' ? {a:['a1','a2','a3'],b:['b1','b2','b3'],c:['c1','c2','c3']} : {a:['a1','a2','a3'],b:['b1','b2','b3'],c:['c1','c2','c3']};
+                
+                let strengths = [], weaknesses = [];
+                indicatorKeys[aKey].forEach(id => {
+                    const val = getIndicatorValue(id);
+                    if (val !== null) {
+                        const name = rubrik[id].name.toLowerCase();
+                        const desc = getNaturalLabel(id, val);
+                        if (val >= 85) strengths.push(`${name} yang ${desc}`);
+                        else if (val <= 75) weaknesses.push(`${name} yang ${desc}`);
+                    }
+                });
+
+                if (strengths.length > 0 || weaknesses.length > 0) {
+                    const aspectTitle = rubrik.aspek[aKey].split('(')[0].trim();
+                    const aspectStarters = [`Pada bidang ${aspectTitle.toLowerCase()}, `, `Dilihat dari ${aspectTitle.toLowerCase()}, `, `Terkait ${aspectTitle.toLowerCase()}, `];
+                    let sentence = aspectStarters[idx % aspectStarters.length];
+
+                    if (strengths.length > 0 && weaknesses.length > 0) {
+                        sentence += `peserta memperlihatkan ${formatList(strengths)}, namun di sisi lain ${formatList(weaknesses, "but")}.`;
+                    } else if (strengths.length > 0) {
+                        sentence += `peserta sangat menonjol pada ${formatList(strengths)}.`;
+                    } else if (weaknesses.length > 0) {
+                        sentence += `dewan juri mencatat bahwa ${formatList(weaknesses)} masih perlu mendapatkan perhatian serius.`;
+                    }
+                    narrativeParts.push(sentence);
+                }
+            });
+
+            const closings = [
+                "Semoga catatan ini menjadi bahan evaluasi untuk meningkatkan kualitas penampilan di masa yang akan datang.",
+                "Teruslah berlatih agar dapat tampil lebih maksimal lagi pada kesempatan berikutnya.",
+                "Diharapkan motivasi belajar terus ditingkatkan demi prestasi yang lebih gemilang."
+            ];
+            narrativeParts.push(closings[Math.floor(Math.random() * closings.length)]);
+            commentArea.value = narrativeParts.join(" ");
+        }
+
+        function updateJudgingParticipants() {
+            const select = document.getElementById('judge_participant_select');
+            if (!select || !window.currentUser) return;
+            const lid = window.currentUser.lombaId || 'mtq';
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">-- Pilih Nomor Undian --</option>';
+            
+            window.submissions
+                .filter(s => s[`${lid}_nama_1`])
+                .sort((a,b) => {
+                    const noA = UNDIAN_MAP[(a.nama_sekolah || "").toUpperCase().trim()] || 0;
+                    const noB = UNDIAN_MAP[(b.nama_sekolah || "").toUpperCase().trim()] || 0;
+                    return noA - noB;
+                })
+                .forEach((sub) => {
+                    const schoolName = (sub.nama_sekolah || "").toUpperCase().trim();
+                    const noUndian = UNDIAN_MAP[schoolName] || "--";
+                    const opt = document.createElement('option');
+                    opt.value = sub.id; opt.text = String(noUndian).padStart(2, '0');
+                    const jNo = window.activeEditJuriNo || window.currentUser.juriNo || "1";
+                    if(window.scores.some(s => s.submissionId === sub.id && s.judgeNo == jNo && s.lombaId === lid)) opt.classList.add('scored-option');
+                    select.add(opt);
+                });
+            select.value = currentVal;
+        }
+
+        async function saveJudgement() {
+            const remaining = calculateLiveTotal();
+            if (remaining > 0) return showModal("PERINGATAN", `Lengkapi seluruh unsur penilaian, alasan skor 0, atau materi lomba.`, "error");
+            
+            const sid = document.getElementById('judge_participant_select').value;
+            if(!sid) return showModal("PERINGATAN", "Pilih peserta terlebih dahulu.", "error");
+            const lid = window.currentUser.lombaId || "mtq";
+            const jNo = window.activeEditJuriNo || window.currentUser.juriNo || "1";
+            const draftKey = `${sid}_${lid}_J${jNo}`;
+            const draft = window.draftScores[draftKey];
+
+            try { 
+                await window.firestoreTools.setDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'penilaian', `${sid}_${lid}_J${jNo}`), { 
+                    submissionId: sid, lombaId: lid, judgeNo: jNo,
+                    granularScores: draft.granularScores, 
+                    justifications: draft.justifications, 
+                    theme: draft.theme || "",
+                    total: parseFloat(document.getElementById('live_total_score').innerText), 
+                    comment: document.getElementById('judge_comment').value, 
+                    judgedBy: window.currentUser.username, 
+                    timestamp: window.firestoreTools.serverTimestamp() 
+                }); 
+                await window.firestoreTools.deleteDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'requests', `${window.currentUser.username}_${sid}`));
+                showModal("BERHASIL", "Nilai telah disimpan.", "success"); 
+                window.activeEditJuriNo = null; updateJudgingParticipants(); updateLockUI();
+            } catch (e) { showModal("GAGAL", e.message, "error"); }
+        }
+
+        function loadExistingScore() {
+            const sid = document.getElementById('judge_participant_select').value;
+            const lid = window.currentUser.lombaId || 'mtq';
+            const jNo = window.activeEditJuriNo || window.currentUser.juriNo || "1";
+            if(!sid) return;
+            const participant = window.submissions.find(s => s.id === sid);
+            const schoolName = participant ? (participant.nama_sekolah || "").toUpperCase().trim() : "";
+            document.getElementById('displaySelectedNo').innerText = String(UNDIAN_MAP[schoolName] || "--").padStart(2,'0');
+            
+            const dbRecord = window.scores.find(s => s.id === `${sid}_${lid}_J${jNo}`);
+            clearScoreInputs();
+
+            let currentMateri = "";
+            if (lid === 'pildacil' || lid === 'mtq') {
+                currentMateri = lid === 'mtq' ? (window.mtqMaqras[sid] || "") : (window.pildacilThemes[sid] || "");
+                const textDisplay = document.getElementById('materi_text_val');
+                if (textDisplay) textDisplay.innerText = currentMateri || "Menunggu Juri 1...";
+                const dropdown = document.getElementById('judge_materi_select');
+                if (dropdown) dropdown.value = currentMateri;
+            }
+
+            if (dbRecord) {
+                window.draftScores[`${sid}_${lid}_J${jNo}`] = { 
+                    granularScores: { ...dbRecord.granularScores }, 
+                    justifications: { ...dbRecord.justifications }, 
+                    comment: dbRecord.comment,
+                    theme: dbRecord.theme || currentMateri
+                };
+                Object.keys(dbRecord.granularScores).forEach(id => applyIndicatorScoreUI(id, dbRecord.granularScores[id]));
+                
+                if (dbRecord.justifications) {
+                    Object.keys(dbRecord.justifications).forEach(id => {
+                        const ta = document.getElementById(`justification_${id}`);
+                        if (ta) ta.value = dbRecord.justifications[id];
+                    });
+                }
+                document.getElementById('judge_comment').value = dbRecord.comment || "";
+            } else if (currentMateri) {
+                const draftKey = `${sid}_${lid}_J${jNo}`;
+                if (!window.draftScores[draftKey]) window.draftScores[draftKey] = { granularScores: {}, justifications: {}, comment: "", theme: currentMateri };
+                else window.draftScores[draftKey].theme = currentMateri;
+            }
+            calculateLiveTotal();
+        }
+
+        function applyIndicatorScoreUI(id, val) {
+            const lid = window.currentUser?.lombaId || 'mtq';
+            const manualInput = document.getElementById(`manual_input_${id}`);
+            const scoreLabel = document.getElementById(`score_label_${id}`);
+            let matchedLevel = null;
+            if (manualInput) manualInput.value = val.toFixed(2);
+            [4, 3, 2, 1].forEach(lvl => {
+                const range = RUBRIK_DATA[lid][id][lvl].range;
+                if (range && val >= range[0] && val <= range[1]) matchedLevel = lvl;
+            });
+            if (val === 0) matchedLevel = 0;
+            if (matchedLevel !== null) {
+                document.querySelectorAll(`.rubric-option[data-id="${id}"]`).forEach(opt => opt.classList.toggle('active', parseInt(opt.dataset.value) === matchedLevel));
+                if(scoreLabel) scoreLabel.innerText = RUBRIK_DATA[lid][id][matchedLevel].label;
+            }
+        }
+
+        function clearScoreInputs() { 
+            document.querySelectorAll('.rubric-option').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('[id^="score_label_"]').forEach(el => el.innerText = 'BELUM DINILAI');
+            document.querySelectorAll('.manual-score-input').forEach(i => i.value = '');
+            document.querySelectorAll('.justification-input').forEach(ta => ta.value = '');
+            const matSel = document.getElementById('judge_materi_select');
+            if (matSel) matSel.value = "";
+            document.getElementById('live_total_score').innerText = '0.00'; 
+            document.getElementById('judge_comment').value = ''; 
+            calculateLiveTotal();
+        }
+
+        function updateResultsTable() {
+            const tbody = document.getElementById('resultsTableBody'); if(!tbody || !window.currentUser) return;
+            const filterLomba = document.getElementById('db_filter_lomba').value;
+            let rows = [];
+            window.submissions.forEach(sub => {
+                Object.keys(LOMBA_MAP).forEach(lid => {
+                    if (sub[`${lid}_nama_1`]) {
+                        if (filterLomba !== 'all' && filterLomba !== lid) return;
+                        const s1 = window.scores.find(s => s.submissionId === sub.id && s.lombaId === lid && s.judgeNo == "1");
+                        const s2 = window.scores.find(s => s.submissionId === sub.id && s.lombaId === lid && s.judgeNo == "2");
+                        const j1 = s1 ? s1.total : -1, j2 = s2 ? s2.total : -1;
+                        const avg = (j1 >= 0 && j2 >= 0) ? (j1 + j2) / 2 : Math.max(j1, j2, 0);
+                        const schoolName = (sub.nama_sekolah || "").toUpperCase().trim();
+                        
+                        let j1_actions = s1 ? `<div class="flex items-center justify-center gap-1 mt-1"><button onclick="editScoreFromTable('${sub.id}', '${lid}', '1')" class="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2"></path></svg></button><button onclick="deleteScoreFromTable('${sub.id}', '${lid}', '1')" class="p-1 text-rose-500 hover:bg-rose-50 rounded"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2"></path></svg></button></div>` : "";
+                        let j2_actions = s2 ? `<div class="flex items-center justify-center gap-1 mt-1"><button onclick="editScoreFromTable('${sub.id}', '${lid}', '2')" class="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2"></path></svg></button><button onclick="deleteScoreFromTable('${sub.id}', '${lid}', '2')" class="p-1 text-rose-500 hover:bg-rose-50 rounded"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2"></path></svg></button></div>` : "";
+
+                        const currentTheme = lid === 'pildacil' ? (s1?.theme || s2?.theme || window.pildacilThemes[sub.id] || "") : (s1?.theme || s2?.theme || window.mtqMaqras[sub.id] || "");
+
+                        rows.push({ id: sub.id, noUndian: UNDIAN_MAP[schoolName] || 0, name: sub[`${lid}_nama_1`], school: sub.nama_sekolah, lname: LOMBA_MAP[lid].name, lid: lid, j1, j2, avg, s1_id: s1?.id, s2_id: s2?.id, j1_actions, j2_actions, theme: currentTheme });
+                    }
+                });
+            });
+
+            rows.sort((a, b) => b.avg - a.avg).forEach((r, i) => r.rank = r.avg > 0 ? i + 1 : null);
+            rows.sort((a, b) => resultsSort.dir === 'asc' ? a[resultsSort.col] - b[resultsSort.col] : b[resultsSort.col] - a[resultsSort.col]);
+
+            tbody.innerHTML = rows.map(r => `
+                <tr class="${r.rank <= 3 && r.rank ? 'rank-row-'+r.rank : ''} hover:bg-slate-50 transition-colors">
+                    <td class="px-6 py-4 text-center font-mono font-bold">${String(r.noUndian).padStart(2,'0')}</td>
+                    <td class="px-6 py-4">
+                        <div>
+                            <p class="uppercase font-black text-emerald-900">${r.name}</p>
+                            <p class="text-[10px] text-slate-400 uppercase font-bold">${r.school}</p>
+                            ${(r.lid === 'pildacil' || r.lid === 'mtq') && r.theme ? `<p class="text-[10px] text-amber-600 font-medium mt-0.5">${r.theme}</p>` : ''}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 uppercase text-[10px] text-emerald-700 font-bold">${r.lname}</td>
+                    <td class="px-6 py-4 text-center font-mono">${r.j1 >= 0 ? `<div onclick="showScoreDetail('${r.s1_id}')" class="score-clickable font-black text-emerald-600">${r.j1.toFixed(2)}</div>` : '-'} ${r.j1_actions}</td>
+                    <td class="px-6 py-4 text-center font-mono">${r.j2 >= 0 ? `<div onclick="showScoreDetail('${r.s2_id}')" class="score-clickable font-black text-emerald-600">${r.j2.toFixed(2)}</div>` : '-'} ${r.j2_actions}</td>
+                    <td class="px-6 py-4 text-center font-black text-emerald-800 font-mono">${r.avg.toFixed(2)}</td>
+                    <td class="px-6 py-4 text-center"><span class="${r.rank ? 'rank-badge-'+r.rank : ''} px-2.5 py-1 rounded text-[9px] font-black">${r.rank || ''}</span></td>
+                </tr>`).join('');
+        }
+
+        function showScoreDetail(scoreId) {
+            const score = window.scores.find(s => s.id === scoreId);
+            if(!score) return;
+            document.getElementById('detailModalSubtitle').innerText = `${score.judgedBy} • ${LOMBA_MAP[score.lombaId].name}`;
+            document.getElementById('detailModalComment').innerText = score.comment || "Tidak ada narasi tambahan.";
+            const grid = document.getElementById('detailIndicatorGrid');
+            grid.innerHTML = Object.keys(score.granularScores).map(key => `
+                <div class="flex flex-col p-2 bg-slate-50 rounded border border-slate-100">
+                    <span class="text-[7px] font-black text-slate-400 uppercase">${key}</span>
+                    <span class="text-xs font-black ${score.granularScores[key] === 0 ? 'text-rose-600' : 'text-emerald-700'}">${score.granularScores[key].toFixed(2)}</span>
+                </div>
+            `).join('');
+            document.getElementById('detailScoringModal').classList.remove('hidden');
+        }
+
+        function closeDetailModal() { document.getElementById('detailScoringModal').classList.add('hidden'); }
+
+        async function editScoreFromTable(sid, lid, jNo) {
+            if (!window.currentUser || (window.currentUser.role !== 'super_admin' && window.currentUser.lombaId !== lid)) {
+                return showModal("AKSES DIBATASI", "Anda tidak memiliki hak akses.", "error");
+            }
+            window.activeEditJuriNo = jNo;
+            switchTab('penilaian');
+            document.getElementById('judgingTitle').innerText = LOMBA_MAP[lid]?.name || "Cabang"; 
+            document.getElementById('judgingRoleInfo').innerText = `EDITING JURI ${jNo}`; 
+            const select = document.getElementById('judge_participant_select');
+            select.value = sid;
+            handleParticipantChange();
+            showModal("MODE EDIT", `Konteks Juri ${jNo} aktif.`, "success");
+        }
+
+        async function deleteScoreFromTable(sid, lid, jNo) {
+            if (window.currentUser.role !== 'super_admin') return showModal("AKSES DIBATASI", "Hanya Super Admin.", "error");
+            if (confirm(`Hapus permanen nilai Juri ${jNo}?`)) {
+                try {
+                    await window.firestoreTools.deleteDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'penilaian', `${sid}_${lid}_J${jNo}`));
+                    showModal("TERHAPUS", "Data berhasil dihapus.", "success");
+                } catch (e) { showModal("ERROR", "Gagal hapus.", "error"); }
+            }
+        }
+
+        async function createUserAccount() {
+            const u = document.getElementById('m_username').value.toLowerCase().trim(), p = document.getElementById('m_password').value, r = document.getElementById('m_role').value, l = document.getElementById('m_lomba').value, j = document.getElementById('m_juri_no').value;
+            if(!u || !p) return showModal("PERINGATAN", "Username/Password diperlukan.", "error");
+            try { 
+                await window.firestoreTools.setDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'users', u), { password: p, role: r, lombaId: r === 'juri' ? l : null, juriNo: r === 'juri' ? j : null, createdAt: window.firestoreTools.serverTimestamp() }); 
+                showModal("BERHASIL", `Akun ${u} disimpan.`, "success"); cancelEdit();
+            } catch (e) { showModal("GAGAL", e.message, "error"); }
+        }
+
+        function toggleUserPass(id, pass) {
+            const span = document.getElementById(`pass_text_${id}`);
+            span.innerText = span.innerText === '••••••' ? pass : '••••••';
+        }
+
+        function updateUsersTable() {
+            const tbody = document.getElementById('usersTableBody'); if(!tbody) return;
+            document.getElementById('userCount').innerText = `${window.allUsers.length} Akun`;
+            const now = Date.now();
+            tbody.innerHTML = window.allUsers.map((u, index) => {
+                const lastActive = u.lastActive?.toMillis ? u.lastActive.toMillis() : 0;
+                const isActive = (now - lastActive) < (10 * 60 * 1000);
+
+                return `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 font-mono text-slate-400 text-center">${index + 1}</td>
+                    <td class="px-4 py-3 text-center">
+                        <div class="flex items-center justify-center">
+                            <div class="relative flex items-center justify-center">
+                                ${isActive ? `<span class="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 status-dot-ping"></span>` : ''}
+                                <span class="relative inline-flex rounded-full h-2.5 w-2.5 ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 font-black text-slate-800">${u.id}</td>
+                    <td class="px-4 py-3 font-mono text-emerald-600">
+                        <div class="flex items-center gap-2">
+                            <span id="pass_text_${u.id}">••••••</span>
+                            <button onclick="toggleUserPass('${u.id}', '${u.password}')" class="p-1 hover:text-emerald-900 transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-width="2" /><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke-width="2" /></svg>
+                            </button>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 uppercase text-[9px] font-bold text-slate-500">${u.role.replace('_',' ')}</td>
+                    <td class="px-4 py-3 uppercase text-[9px]">${u.lombaId ? LOMBA_MAP[u.lombaId].name : '-'}</td>
+                    <td class="px-4 py-3 text-center font-bold">${u.juriNo || '-'}</td>
+                    <td class="px-4 py-3 text-center">
+                        <div class="flex items-center justify-center gap-1">
+                            <button onclick="editUser('${u.id}')" class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-width="2"/></svg></button>
+                            ${u.role === 'juri' ? `<button onclick="impersonateUser('${u.id}')" class="p-1.5 text-amber-600 hover:bg-amber-50 rounded"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-width="2"/></svg></button>` : ''}
+                            ${u.id !== window.currentUser.username ? `<button onclick="deleteUser('${u.id}')" class="p-1.5 text-rose-500 hover:bg-rose-50 rounded"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2"/></svg></button>` : ''}
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function updateRequestsTable() {
+            const tbody = document.getElementById('requestsTableBody'); if(!tbody) return;
+            const pending = window.requests.filter(r => r.status === 'pending');
+            document.getElementById('requestCount').innerText = `${pending.length} Pending`;
+            tbody.innerHTML = window.requests.map(r => {
+                const sub = window.submissions.find(s => s.id === r.submissionId);
+                const schoolName = (sub?.nama_sekolah || "").toUpperCase().trim();
+                const undian = UNDIAN_MAP[schoolName] || "--";
+                return `<tr><td class="px-4 py-3">Req</td><td class="px-4 py-3 font-bold">${r.juriId}</td><td class="px-4 py-3 font-mono">${String(undian).padStart(2,'0')}</td><td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-[8px] font-black uppercase ${r.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}">${r.status}</span></td><td class="px-4 py-3 text-center"><div class="flex gap-1 justify-center">${r.status === 'pending' ? `<button onclick="approveRequest('${r.id}')" class="p-1.5 bg-emerald-600 text-white rounded shadow-sm hover:bg-emerald-700"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-width="2"></path></svg></button>` : ''}<button onclick="deleteRequest('${r.id}')" class="p-1.5 bg-rose-600 text-white rounded shadow-sm hover:bg-rose-700"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2"></path></svg></button></div></td></tr>`
+            }).join('');
+        }
+
+        function editUser(id) {
+            const u = window.allUsers.find(user => user.id === id); if (!u) return;
+            document.getElementById('m_username').value = u.id;
+            document.getElementById('m_username').readOnly = true;
+            document.getElementById('m_password').value = u.password || "";
+            document.getElementById('m_role').value = u.role;
+            document.getElementById('m_role').dispatchEvent(new Event('change'));
+            if (u.role === 'juri') { 
+                document.getElementById('m_lomba').value = u.lombaId || "mtq"; 
+                document.getElementById('m_juri_no').value = u.juriNo || "1"; 
+            }
+            document.getElementById('formAccountTitle').innerText = "Edit Akun Pengguna";
+            document.getElementById('btnSubmitAccount').innerText = "PERBARUI AKUN";
+            document.getElementById('btnCancelEdit').classList.remove('hidden');
+        }
+
+        async function approveRequest(id) { 
+            try {
+                await window.firestoreTools.updateDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'requests', id), { status: 'approved' }); 
+                showModal("BERHASIL", "Akses edit diberikan.", "success");
+            } catch(e) { showModal("ERROR", "Gagal ACC.", "error"); }
+        }
+        
+        async function deleteRequest(id) { if(confirm("Hapus permintaan?")) await window.firestoreTools.deleteDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'requests', id)); }
+        async function deleteUser(id) { if(confirm(`Hapus ${id}?`)) await window.firestoreTools.deleteDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'users', id)); }
+        
+        function cancelEdit() { 
+            document.getElementById('m_username').value = ''; document.getElementById('m_username').readOnly = false; 
+            document.getElementById('m_password').value = ''; document.getElementById('m_role').value = 'juri';
+            document.getElementById('formAccountTitle').innerText = "Registrasi Akun";
+            document.getElementById('btnSubmitAccount').innerText = "SIMPAN AKUN";
+            document.getElementById('btnCancelEdit').classList.add('hidden');
+        }
+        
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+        function showModal(title, msg, type) { 
+            document.getElementById('modal-title').innerText = title; document.getElementById('modal-msg').innerText = msg;
+            document.getElementById('modal-icon').innerHTML = type === 'error' ? '<svg class="h-8 w-8 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12" stroke-width="2"/></svg>' : '<svg class="h-8 w-8 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M5 13l4 4L19 7" stroke-width="2"/></svg>';
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        function openImportChoice() {
+            const container = document.getElementById('choiceContainer');
+            container.innerHTML = `
+                <button onclick="document.getElementById('importFileInput').click(); closeChoiceModal();" class="p-4 text-left hover:bg-emerald-50 border-b border-slate-100 flex items-center gap-3"><div class="w-8 h-8 rounded bg-emerald-100 text-emerald-600 flex items-center justify-center"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 4v16m8-8H4" stroke-width="2"/></svg></div><div><p class="text-[11px] font-black uppercase">Tambah Data</p><p class="text-[9px] text-slate-400">Gabungkan dengan data yang sudah ada.</p></div></button>
+                <button onclick="confirmClearBeforeImport()" class="p-4 text-left hover:bg-rose-50 flex items-center gap-3"><div class="w-8 h-8 rounded bg-rose-100 text-rose-600 flex items-center justify-center"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7" stroke-width="2"/></svg></div><div><p class="text-[11px] font-black uppercase">Bersihkan Database</p><p class="text-[9px] text-slate-400">Hapus data lama sebelum mengimpor.</p></div></button>
+            `;
+            document.getElementById('choiceIcon').innerHTML = '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" stroke-width="2"/></svg>';
+            document.getElementById('choiceTitle').innerText = "Impor Peserta";
+            document.getElementById('choiceSubtitle').innerText = "Pilih metode pengolahan data";
+            document.getElementById('choiceModal').classList.remove('hidden');
+        }
+        function closeChoiceModal() { document.getElementById('choiceModal').classList.add('hidden'); }
+
+        function confirmClearBeforeImport() {
+            if(confirm("PERINGATAN: Seluruh data peserta (Pendaftar) akan dihapus permanen sebelum impor baru. Lanjutkan?")) {
+                const clearAll = async () => {
+                    for(let sub of window.submissions) {
+                        await window.firestoreTools.deleteDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'pendaftar', sub.id));
+                    }
+                    document.getElementById('importFileInput').click();
+                };
+                clearAll();
+            }
+            closeChoiceModal();
+        }
+
+        window.exportAccountsToExcel = function() {
+            if (!window.allUsers.length) return showModal("KOSONG", "Tidak ada akun untuk diekspor.", "error");
+            
+            const rows = window.allUsers.map(u => ({
+                "Username": u.id,
+                "Password": u.password,
+                "Role": u.role.replace('_',' '),
+                "Tugas Cabang": u.lombaId ? LOMBA_MAP[u.lombaId]?.name : "-",
+                "No Juri": u.juriNo || "-"
+            }));
+
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Akun Pengguna");
+
+            const d = new Date();
+            const pad = (n) => n.toString().padStart(2, '0');
+            const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+            const timeStr = `${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+            const fileName = `Edi Brata Akun Pentas PAI ${dateStr} ${timeStr}.xlsx`;
+
+            XLSX.writeFile(wb, fileName);
+        }
+
+        window.exportToExcel = function() {
+            const wb = XLSX.utils.book_new();
+            let hasData = false;
+
+            Object.keys(LOMBA_MAP).forEach(lid => {
+                const rawSheetRows = [];
+                window.submissions.forEach(sub => {
+                    if (sub[`${lid}_nama_1`]) {
+                        const s1 = window.scores.find(s => s.submissionId === sub.id && s.lombaId === lid && s.judgeNo == "1");
+                        const s2 = window.scores.find(s => s.submissionId === sub.id && s.lombaId === lid && s.judgeNo == "2");
+                        const j1 = s1 ? s1.total : 0, j2 = s2 ? s2.total : 0;
+                        const avg = (j1 > 0 && j2 > 0) ? (j1 + j2) / 2 : (j1 + j2);
+                        const schoolName = (sub.nama_sekolah || "").toUpperCase().trim();
+                        
+                        const row = {
+                            "No. Undian": String(UNDIAN_MAP[schoolName] || 0).padStart(2,'0'),
+                            "Nama Peserta": sub[`${lid}_nama_1`],
+                            "Sekolah": sub.nama_sekolah,
+                        };
+
+                        if (lid === 'pildacil') row["Tema (Pildacil)"] = (s1?.theme || s2?.theme || window.pildacilThemes[sub.id] || "-");
+                        if (lid === 'mtq') row["Maqra (Tilawah)"] = (s1?.theme || s2?.theme || window.mtqMaqras[sub.id] || "-");
+
+                        row["Juri 1"] = parseFloat(j1.toFixed(2));
+                        row["Juri 2"] = parseFloat(j2.toFixed(2));
+                        row["Skor Akhir"] = parseFloat(avg.toFixed(2));
+                        row["Justifikasi Juri 1"] = s1?.comment || "";
+                        row["Justifikasi Juri 2"] = s2?.comment || "";
+                        
+                        rawSheetRows.push(row);
+                    }
+                });
+
+                if (rawSheetRows.length > 0) {
+                    rawSheetRows.sort((a, b) => b["Skor Akhir"] - a["Skor Akhir"]);
+                    const finalRows = rawSheetRows.map((r, i) => ({
+                        "No.": i + 1,
+                        ...r,
+                        "Peringkat": r["Skor Akhir"] > 0 ? i + 1 : "-"
+                    }));
+
+                    const ws = XLSX.utils.json_to_sheet(finalRows);
+                    XLSX.utils.book_append_sheet(wb, ws, LOMBA_MAP[lid].name.substring(0, 31));
+                    hasData = true;
+                }
+            });
+
+            if (!hasData) return showModal("KOSONG", "Tidak ada data nilai.", "error");
+            
+            const d = new Date();
+            const pad = (n) => n.toString().padStart(2, '0');
+            const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+            const timeStr = `${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+            const fileName = `Edi Brata Rekap Penilaian Pentas PAI ${dateStr} ${timeStr}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+        }
+
+        window.exportToPDF = function() {
+            const filterLomba = document.getElementById('db_filter_lomba').value;
+            if (filterLomba === 'all') return showModal("PILIH CABANG", "Pilih cabang lomba untuk cetak PDF.", "error");
+
+            const branchName = LOMBA_MAP[filterLomba].name;
+            const rows = [];
+            window.submissions.forEach(sub => {
+                if (sub[`${filterLomba}_nama_1`]) {
+                    const s1 = window.scores.find(s => s.submissionId === sub.id && s.lombaId === filterLomba && s.judgeNo == "1");
+                    const s2 = window.scores.find(s => s.submissionId === sub.id && s.lombaId === filterLomba && s.judgeNo == "2");
+                    const j1 = s1 ? s1.total : 0, j2 = s2 ? s2.total : 0;
+                    const avg = (j1 > 0 && j2 > 0) ? (j1 + j2) / 2 : Math.max(j1, j2, 0);
+                    const schoolName = (sub.nama_sekolah || "").toUpperCase().trim();
+                    rows.push({ noUndian: UNDIAN_MAP[schoolName] || 0, name: sub[`${filterLomba}_nama_1`], j1, j2, avg });
+                }
+            });
+
+            if (!rows.length) return showModal("KOSONG", "Tidak ada data.", "error");
+            const scored = rows.filter(r => r.avg > 0).sort((a,b) => b.avg - a.avg);
+            scored.forEach((r, i) => r.rank = i + 1);
+            rows.sort((a,b) => a.noUndian - b.noUndian);
+
+            const element = document.createElement('div');
+            element.style.background = 'white'; element.style.color = '#000'; element.style.width = '210mm'; 
+
+            const pdfHeader = `
+                <div style="display: flex; align-items: center; justify-content: center; border-bottom: 4px double #000; padding-bottom: 10px; margin-bottom: 10px;">
+                    <img src="https://raw.githubusercontent.com/edibrata/image/main/Logo%20Pentas%20PAI-1.png" style="height: 64px; margin-right: 20px;">
+                    <div style="text-align: center; font-family: 'Arial', sans-serif;">
+                        <h1 style="margin: 0; font-size: 16px; font-weight: 900; letter-spacing: 0.2px; text-transform: uppercase;">PENTAS PENDIDIKAN AGAMA ISLAM</h1>
+                        <h2 style="margin: 0; font-size: 18px; font-weight: 900; text-transform: uppercase; line-height: 1.1;">Kecamatan Sukaresmi</h2>
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 700; text-transform: uppercase;">Tahun 2026</h3>
+                    </div>
+                </div>`;
+
+            const signatureTable = `
+                <table style="width: 100%; border: none; margin-top: 5px; font-family: 'Times New Roman', serif; font-size: 13px;">
+                    <tr>
+                        <td style="width: 50%; text-align: center; border: none; padding: 0;">
+                            <p style="margin: 0 0 55px 0;">Juri I,</p>
+                            <p>__________________________</p>
+                        </td>
+                        <td style="width: 50%; text-align: center; border: none; padding: 0;">
+                            <p style="margin: 0 0 55px 0;">Juri II,</p>
+                            <p>__________________________</p>
+                        </td>
+                    </tr>
+                </table>`;
+
+            element.innerHTML = `
+                <div style="padding: 8mm 20mm 10mm 20mm; min-height: 270mm; box-sizing: border-box; display: flex; flex-direction: column; font-family: 'Times New Roman', serif; page-break-after: always;">
+                    ${pdfHeader}
+                    <div style="text-align: center; margin: 20px 0 15px 0;">
+                        <h2 style="margin: 0; font-size: 16px; font-weight: bold;">BERITA ACARA PENILAIAN</h2>
+                    </div>
+                    <div style="text-align: justify; line-height: 1.6; font-size: 14px;">
+                        <p>Pada hari ini, <b>Sabtu</b> tanggal <b>Dua</b> bulan <b>Mei</b> tahun <b>Dua Ribu Dua Puluh Enam</b>, bertempat di Cibungur, telah dilaksanakan proses penilaian Pentas PAI untuk cabang lomba <b>${branchName}</b>.</p>
+                        <p style="margin-top: 15px;">Berdasarkan hasil penilaian objektif dan mufakat dewan juri, dengan ini menyatakan bahwa:</p>
+                        <div style="margin-left: 15px; margin-top: 5px;">
+                            <table style="border:none; width: 100%; font-size: 14px;">
+                                <tr><td style="width: 25px; vertical-align: top; border:none; padding: 2px 0;">1.</td><td style="border:none; padding: 2px 0;">Seluruh rangkaian penilaian telah dilaksanakan secara jujur, adil, and transparan sesuai petunjuk teknis Pentas PAI 2026.</td></tr>
+                                <tr><td style="vertical-align: top; border:none; padding: 2px 0;">2.</td><td style="border:none; padding: 2px 0;">Data nilai yang terlampir pada halaman rekapitulasi merupakan hasil final yang telah diverifikasi keabsahannya.</td></tr>
+                                <tr><td style="vertical-align: top; border:none; padding: 2px 0;">3.</td><td style="border:none; padding: 2px 0;">Keputusan juri bersifat mutlak and tidak dapat diganggu gugat oleh pihak manapun.</td></tr>
+                            </table>
+                        </div>
+                        <p style="margin-top: 20px; margin-bottom: 20px;">Demikian Berita Acara ini dibuat untuk dipergunakan sebagaimana mestinya.</p>
+                    </div>
+                    <div style="text-align: center;">
+                        <p style="margin: 0;">Cibungur, 2 Mei 2026</p>
+                        ${signatureTable}
+                    </div>
+                </div>
+
+                <div style="padding: 8mm 20mm 10mm 20mm; min-height: 270mm; box-sizing: border-box; display: flex; flex-direction: column; font-family: 'Times New Roman', serif;">
+                    ${pdfHeader}
+                    <div style="text-align: center; margin: 15px 0 12px 0;">
+                        <h3 style="margin: 0; font-size: 13px; font-weight: bold; text-transform: uppercase; line-height: 1.1;">LAMPIRAN REKAPITULASI NILAI</h3>
+                        <h3 style="margin: 0; font-size: 13px; font-weight: bold; text-transform: uppercase; line-height: 1.1;">CABANG ${branchName.toUpperCase()}</h3>
+                    </div>
+
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.1;">
+                        <thead>
+                            <tr style="background-color: #334155; color: #ffffff;">
+                                <th style="border: 1px solid #1e293b; padding: 8px 4px; width: 35px; text-align: center;">No</th>
+                                <th style="border: 1px solid #1e293b; padding: 8px 4px; text-align: center;">Nomor Undian</th>
+                                <th style="border: 1px solid #1e293b; padding: 8px 4px; text-align: center;">Nilai Juri I</th>
+                                <th style="border: 1px solid #1e293b; padding: 8px 4px; text-align: center;">Nilai Juri II</th>
+                                <th style="border: 1px solid #1e293b; padding: 8px 4px; text-align: center;">Nilai Akhir</th>
+                                <th style="border: 1px solid #1e293b; padding: 8px 4px; width: 80px; text-align: center;">Peringkat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows.map((r, i) => {
+                                const bgColor = r.rank === 1 ? '#fefce8' : r.rank === 2 ? '#f8fafc' : r.rank === 3 ? '#fff7ed' : 'transparent';
+                                return `
+                                <tr style="background-color: ${bgColor};">
+                                    <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">${i+1}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center; font-weight: bold; font-family: 'Courier New', monospace; font-size: 13px;">${String(r.noUndian).padStart(2,'0')}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">${r.j1 > 0 ? r.j1.toFixed(2) : '-'}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">${r.j2 > 0 ? r.j2.toFixed(2) : '-'}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center; font-weight: 800; color: #064e3b;">${r.avg > 0 ? r.avg.toFixed(2) : '-'}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center; font-weight: 900;">${r.rank || ''}</td>
+                                </tr>
+                            `}).join('')}
+                        </tbody>
+                    </table>
+
+                    <div style="margin-top: 20px; text-align: center;">
+                        <p style="margin: 0 0 10px 0; font-size: 12px;">Disahkan pada tanggal 2 Mei 2026</p>
+                        ${signatureTable}
+                    </div>
+                </div>`;
+
+            const d = new Date();
+            const pad = (n) => n.toString().padStart(2, '0');
+            const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+            const timeStr = `${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+            const fileNameStr = `Edi Brata BA Penilaian Pentas PAI ${branchName} ${dateStr} ${timeStr}.pdf`;
+
+            html2pdf().set({
+                margin: 0,
+                filename: fileNameStr,
+                html2canvas: { scale: 3, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            }).from(element).save();
+        }
+
+        document.getElementById('m_role')?.addEventListener('change', function(e){ 
+            const isJuri = e.target.value === 'juri'; 
+            document.getElementById('m_lomba_container').style.display = isJuri ? 'block' : 'none'; 
+            document.getElementById('m_juri_no_container').style.display = isJuri ? 'block' : 'none'; 
+        });
+    </script>
+</body>
+</html>
