@@ -100,12 +100,12 @@
             if (!auth.currentUser) return;
             onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'pendaftar'), (snapshot) => {
                 window.submissions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                if (window.currentUser) { updateJudgingParticipants(); updateResultsTable(); }
+                if (window.currentUser) { updateJudgingParticipants(); updateResultsTable(); updateLeaderboard(); }
             }, (err) => console.error(err));
             
             onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'penilaian'), (snapshot) => {
                 window.scores = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                if (window.currentUser) { updateJudgingParticipants(); updateResultsTable(); updateLockUI(); }
+                if (window.currentUser) { updateJudgingParticipants(); updateResultsTable(); updateLockUI(); updateLeaderboard(); }
             }, (err) => console.error(err));
 
             onSnapshot(collection(db, 'artifacts', customAppId, 'public', 'data', 'pildacil_themes'), (snapshot) => {
@@ -363,6 +363,10 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" stroke-width="2"/></svg>
                         <span class="hidden md:block font-bold text-[10px] uppercase tracking-widest">Penilaian</span>
                     </button>
+                    <button onclick="switchTab('leaderboard')" id="nav-leaderboard" class="nav-link px-3 transition-all border-b-2 h-full flex items-center gap-2 group hidden text-slate-400 hover:text-emerald-700 border-transparent">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                        <span class="hidden md:block font-bold text-[10px] uppercase tracking-widest">Leaderboard</span>
+                    </button>
                     <button onclick="switchTab('database')" id="nav-database" class="nav-link px-3 transition-all border-b-2 h-full flex items-center gap-2 group hidden text-slate-400 hover:text-emerald-700 border-transparent">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path></svg>
                         <span class="hidden md:block font-bold text-[10px] uppercase tracking-widest ml-2">Database</span>
@@ -419,7 +423,7 @@
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start flex-grow">
                     
                     <!-- Side Nav Scoring -->
-                    <div class="lg:col-span-3 sticky top-24 space-y-4">
+                    <div class="lg:col-span-3 lg:sticky lg:top-24 space-y-4">
                         <div class="bg-emerald-900 rounded-md p-4 text-white shadow-lg overflow-hidden relative">
                             <div class="relative z-10">
                                 <p class="text-[8px] font-black text-emerald-300 uppercase tracking-[0.3em] mb-1">Peserta Terpilih</p>
@@ -434,31 +438,36 @@
                         </div>
 
                         <div class="bg-white rounded-md p-4 shadow-sm border border-slate-200">
-                            <label class="block text-[8px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Nomor Undian</label>
-                            <select id="judge_participant_select" onchange="handleManualParticipantChange()" class="w-full px-3 py-2.5 rounded bg-slate-50 border border-slate-200 font-bold text-xs outline-none focus:border-emerald-600 transition-all cursor-pointer">
-                                <option value="">-- Pilih Nomor Undian --</option>
-                            </select>
-                            
-                            <!-- Materi Container -->
-                            <div id="materi_container" class="mt-4 hidden">
-                                <label id="materi_label" class="block text-[8px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Materi Lomba</label>
-                                <div id="materi_input_wrapper">
-                                    <select id="judge_materi_select" onchange="handleMateriChange()" class="w-full px-3 py-2.5 rounded bg-amber-50 border border-amber-200 font-bold text-[10px] outline-none focus:border-amber-600 transition-all cursor-pointer uppercase">
-                                        <option value="">-- Pilih Materi --</option>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+                                <div>
+                                    <label class="block text-[8px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Nomor Undian</label>
+                                    <select id="judge_participant_select" onchange="handleManualParticipantChange()" class="w-full px-3 py-2.5 rounded bg-slate-50 border border-slate-200 font-bold text-xs outline-none focus:border-emerald-600 transition-all cursor-pointer">
+                                        <option value="">-- Pilih Nomor Undian --</option>
                                     </select>
-                                    <div id="materi_readonly_display" class="hidden p-3 rounded border border-amber-100 bg-amber-50/50">
-                                        <p class="text-[8px] font-black text-amber-800/40 uppercase mb-1">Pilihan Juri 1:</p>
-                                        <p id="materi_text_val" class="text-[10px] font-black text-amber-700 uppercase leading-snug">Menunggu Juri 1...</p>
+                                </div>
+                                
+                                <!-- Materi Container -->
+                                <div id="materi_container" class="hidden">
+                                    <label id="materi_label" class="block text-[8px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Materi Lomba</label>
+                                    <div id="materi_input_wrapper">
+                                        <select id="judge_materi_select" onchange="handleMateriChange()" class="w-full px-3 py-2.5 rounded bg-amber-50 border border-amber-200 font-bold text-[10px] outline-none focus:border-amber-600 transition-all cursor-pointer uppercase">
+                                            <option value="">-- Pilih Materi --</option>
+                                        </select>
+                                        <div id="materi_readonly_display" class="hidden p-2.5 rounded border border-amber-100 bg-amber-50/50">
+                                            <p class="text-[8px] font-black text-amber-800/40 uppercase mb-0.5">Pilihan Juri 1:</p>
+                                            <p id="materi_text_val" class="text-[10px] font-black text-amber-700 uppercase leading-snug">Menunggu Juri 1...</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div id="aspect_nav_container" class="bg-emerald-50 rounded-md p-2 space-y-1 locked-section">
-                            <button onclick="setActiveAspect('a')" id="nav_btn_a" class="aspect-nav-btn active"><div class="aspect-circle"><span>A</span></div><div class="flex-grow"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_a">Aspek A</p><p class="text-[8px] opacity-60 font-bold" id="prog_a">0 Terisi</p></div></button>
-                            <button onclick="setActiveAspect('b')" id="nav_btn_b" class="aspect-nav-btn"><div class="aspect-circle"><span>B</span></div><div class="flex-grow"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_b">Aspek B</p><p class="text-[8px] opacity-60 font-bold" id="prog_b">0 Terisi</p></div></button>
-                            <button onclick="setActiveAspect('c')" id="nav_btn_c" class="aspect-nav-btn"><div class="aspect-circle"><span>C</span></div><div class="flex-grow"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_c">Aspek C</p><p class="text-[8px] opacity-60 font-bold" id="prog_c">0 Terisi</p></div></button>
-                            <button onclick="setActiveAspect('d')" id="nav_btn_d" class="aspect-nav-btn"><div class="aspect-circle"><span>D</span></div><div class="flex-grow"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_d">Aspek D</p><p class="text-[8px] opacity-60 font-bold" id="prog_d">0 Terisi</p></div></button>
+                        <!-- Aspect Navigation: Horizontal Sticky on Mobile, Vertical Stack on Desktop -->
+                        <div id="aspect_nav_container" class="locked-section sticky top-[56px] md:top-[64px] lg:relative lg:top-0 z-30 bg-white lg:bg-transparent border-b lg:border-b-0 border-slate-100 -mx-4 px-4 py-2 lg:mx-0 lg:px-0 lg:py-0 flex flex-row lg:flex-col overflow-x-auto lg:overflow-visible gap-1.5 custom-scrollbar">
+                            <button onclick="setActiveAspect('a')" id="nav_btn_a" class="aspect-nav-btn active flex-shrink-0 min-w-[90px] lg:w-full bg-white"><div class="aspect-circle"><span>A</span></div><div class="flex-grow text-left"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_a">Aspek A</p><p class="text-[8px] opacity-60 font-bold" id="prog_a">0 Terisi</p></div></button>
+                            <button onclick="setActiveAspect('b')" id="nav_btn_b" class="aspect-nav-btn flex-shrink-0 min-w-[90px] lg:w-full bg-white"><div class="aspect-circle"><span>B</span></div><div class="flex-grow text-left"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_b">Aspek B</p><p class="text-[8px] opacity-60 font-bold" id="prog_b">0 Terisi</p></div></button>
+                            <button onclick="setActiveAspect('c')" id="nav_btn_c" class="aspect-nav-btn flex-shrink-0 min-w-[90px] lg:w-full bg-white"><div class="aspect-circle"><span>C</span></div><div class="flex-grow text-left"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_c">Aspek C</p><p class="text-[8px] opacity-60 font-bold" id="prog_c">0 Terisi</p></div></button>
+                            <button onclick="setActiveAspect('d')" id="nav_btn_d" class="aspect-nav-btn flex-shrink-0 min-w-[90px] lg:w-full bg-white hidden"><div class="aspect-circle"><span>D</span></div><div class="flex-grow text-left"><p class="text-[9px] font-black uppercase tracking-tight" id="nav_label_d">Aspek D</p><p class="text-[8px] opacity-60 font-bold" id="prog_d">0 Terisi</p></div></button>
                         </div>
                     </div>
 
@@ -487,7 +496,7 @@
                     </div>
 
                     <!-- Right Panel Scoring -->
-                    <div class="lg:col-span-3 sticky top-24 space-y-4">
+                    <div class="lg:col-span-3 lg:sticky lg:top-24 space-y-4">
                         <div class="bg-slate-900 rounded-md p-5 text-white shadow-xl text-center border-t-4 border-emerald-600">
                             <p id="score_label_context" class="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-2">Belum Dinilai</p>
                             <h2 class="text-5xl font-black leading-none tracking-tighter" id="live_total_score">0.00</h2>
@@ -517,6 +526,85 @@
                             <button id="btnSaveJudgement" onclick="saveJudgement()" class="w-full py-4 gradient-bg text-white font-black rounded shadow-lg hover:shadow-emerald-500/20 active:scale-95 transition-all uppercase tracking-widest text-[10px] flex items-center justify-center gap-2"><span>SIMPAN & KUNCI NILAI</span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M8 7H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" stroke-width="2"/></svg></button>
                             <button id="btnRequestUnlock" onclick="requestUnlock()" class="hidden w-full py-4 bg-amber-500 text-white font-black rounded shadow-lg hover:bg-amber-600 transition-all uppercase tracking-widest text-[10px] flex items-center justify-center gap-2"><span>AJUKAN PERBAIKAN</span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-width="2"/></svg></button>
                             <button id="btnResetDraft" onclick="resetLocalDraft()" class="w-full py-2 bg-slate-200 text-slate-600 font-bold rounded uppercase tracking-widest text-[9px] hover:bg-rose-100 hover:text-rose-600 transition-colors">RESET ISIAN</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- LEADERBOARD SECTION -->
+            <section id="leaderboard" class="tab-content fade-in max-w-7xl mx-auto px-4 py-6 w-full">
+                <div class="mb-6 bg-emerald-950 text-white p-6 rounded-md shadow-lg border-b-4 border-amber-500 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div>
+                        <h2 class="text-2xl font-black uppercase tracking-tight">🏆 Live Leader Board</h2>
+                        <p class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Pentas PAI Sukaresmi 2026</p>
+                    </div>
+                    <div class="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full border border-white/20">
+                        <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
+                        <span class="text-[10px] font-black uppercase tracking-widest">Sistem Update Otomatis</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- MTQ Block -->
+                    <div class="bg-white rounded-md shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div class="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
+                            <h3 class="font-black uppercase tracking-tighter text-emerald-900 flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.582.477 5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg> MTQ</h3>
+                            <span class="text-[8px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-black uppercase">Tilawah</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50/50">
+                                    <tr class="text-[9px] font-black text-slate-400 uppercase border-b border-slate-100">
+                                        <th class="px-4 py-3 text-center w-10">No</th>
+                                        <th class="px-4 py-3 text-center">Undian</th>
+                                        <th class="px-4 py-3 text-center">Skor</th>
+                                        <th class="px-4 py-3 text-center w-12">Rank</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lb_body_mtq" class="divide-y divide-slate-50 text-[11px] font-bold text-slate-700"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- MHQ Block -->
+                    <div class="bg-white rounded-md shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div class="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
+                            <h3 class="font-black uppercase tracking-tighter text-emerald-900 flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.582.477 5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg> MHQ</h3>
+                            <span class="text-[8px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-black uppercase">Tahfidz</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50/50">
+                                    <tr class="text-[9px] font-black text-slate-400 uppercase border-b border-slate-100">
+                                        <th class="px-4 py-3 text-center w-10">No</th>
+                                        <th class="px-4 py-3 text-center">Undian</th>
+                                        <th class="px-4 py-3 text-center">Skor</th>
+                                        <th class="px-4 py-3 text-center w-12">Rank</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lb_body_mhq" class="divide-y divide-slate-50 text-[11px] font-bold text-slate-700"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Pildacil Block -->
+                    <div class="bg-white rounded-md shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div class="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
+                            <h3 class="font-black uppercase tracking-tighter text-emerald-900 flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M11 5.882V19.297A2.4 2.4 0 018.6 21.697H3.8a2.4 2.4 0 01-2.4-2.4V5.882a2.4 2.4 0 012.4-2.4h4.8a2.4 2.4 0 012.4 2.4zM22.6 5.882V19.297A2.4 2.4 0 0120.2 21.697h-4.8a2.4 2.4 0 01-2.4-2.4V5.882a2.4 2.4 0 012.4-2.4h4.8a2.4 2.4 0 012.4 2.4z" stroke-width="2"></path></svg> PILDACIL</h3>
+                            <span class="text-[8px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-black uppercase">Pidato</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50/50">
+                                    <tr class="text-[9px] font-black text-slate-400 uppercase border-b border-slate-100">
+                                        <th class="px-4 py-3 text-center w-10">No</th>
+                                        <th class="px-4 py-3 text-center">Undian</th>
+                                        <th class="px-4 py-3 text-center">Skor</th>
+                                        <th class="px-4 py-3 text-center w-12">Rank</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lb_body_pildacil" class="divide-y divide-slate-50 text-[11px] font-bold text-slate-700"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -575,7 +663,7 @@
                         <div class="space-y-3">
                             <div><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Username</label><input type="text" id="m_username" class="w-full px-3 py-2 rounded border border-slate-200 font-bold outline-none focus:border-emerald-600 bg-slate-50" placeholder="ID Akun Baru"></div>
                             <div><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Password</label><div class="relative"><input type="password" id="m_password" class="w-full px-3 py-2 pr-10 rounded border border-slate-200 font-bold outline-none focus:border-emerald-600 bg-slate-50" placeholder="••••••••"><button type="button" onclick="togglePassword('m_password', 'eye_icon_reg')" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 p-1.5"><svg id="eye_icon_reg" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button></div></div>
-                            <div><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Role</label><select id="m_role" class="w-full px-3 py-2 rounded border border-slate-200 font-bold uppercase text-[10px] outline-none bg-slate-50"><option value="juri">Juri</option><option value="admin">Admin</option><option value="super_admin">Super Admin</option></select></div>
+                            <div><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Role</label><select id="m_role" class="w-full px-3 py-2 rounded border border-slate-200 font-bold uppercase text-[10px] outline-none bg-slate-50"><option value="juri">Juri</option><option value="admin">Admin</option><option value="leaderboard_admin">Admin Leaderboard</option><option value="super_admin">Super Admin</option></select></div>
                             <div id="m_lomba_container"><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Tugas Cabang</label><select id="m_lomba" class="w-full px-3 py-2 rounded border border-slate-300 font-bold uppercase text-[10px] outline-none bg-slate-50"><option value="mtq">MTQ</option><option value="mhq">MHQ</option><option value="pildacil">Pildacil</option></select></div>
                             <div id="m_juri_no_container"><label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Posisi Juri</label><select id="m_juri_no" class="w-full px-3 py-2 rounded border border-slate-300 font-bold uppercase text-[10px] outline-none bg-slate-50"><option value="1">Juri 1</option><option value="2">Juri 2</option></select></div>
                             <div class="flex gap-2 mt-2"><button onclick="createUserAccount()" id="btnSubmitAccount" class="flex-grow py-3 bg-emerald-950 text-white font-black rounded shadow active:scale-[0.95] uppercase tracking-widest text-[9px]">SIMPAN AKUN</button><button onclick="cancelEdit()" id="btnCancelEdit" class="hidden py-3 px-4 bg-slate-200 text-slate-600 font-black rounded uppercase tracking-widest text-[9px]">BATAL</button></div>
@@ -805,6 +893,7 @@
             }
 
             document.getElementById('nav-penilaian').classList.toggle('hidden', roles !== 'juri' && roles !== 'super_admin');
+            document.getElementById('nav-leaderboard').classList.toggle('hidden', roles !== 'admin' && roles !== 'super_admin' && roles !== 'leaderboard_admin'); 
             document.getElementById('nav-database').classList.toggle('hidden', roles !== 'admin' && roles !== 'super_admin');
             document.getElementById('nav-management').classList.toggle('hidden', roles !== 'super_admin' || window.currentUser.isSimulation);
 
@@ -849,12 +938,14 @@
                 switchTab('penilaian');
                 document.getElementById('judgingTitle').innerText = LOMBA_MAP[lid]?.name || "Cabang Lomba"; 
                 document.getElementById('judgingRoleInfo').innerText = `JURI ${window.currentUser.juriNo}`; 
+            } else if (roles === 'leaderboard_admin') {
+                switchTab('leaderboard');
             } else { 
-                switchTab('database'); 
+                switchTab('leaderboard'); 
             }
             
             renderRubricCards();
-            updateJudgingParticipants(); updateResultsTable();
+            updateJudgingParticipants(); updateResultsTable(); updateLeaderboard();
             if(roles === 'super_admin') { updateUsersTable(); updateRequestsTable(); }
         }
 
@@ -878,6 +969,7 @@
                 updateJudgingParticipants(); 
             }
             if(tabId === 'database') updateResultsTable();
+            if(tabId === 'leaderboard') updateLeaderboard();
             if(tabId === 'management') { cancelEdit(); updateUsersTable(); updateRequestsTable(); }
         }
 
@@ -1004,7 +1096,11 @@
             const navBtn = document.getElementById(`nav_btn_${key}`);
             if (container) container.classList.add('active');
             if (navBtn) navBtn.classList.add('active');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            // Adjust scroll position to account for sticky Aspect Nav on mobile
+            const offset = window.innerWidth < 1024 ? 110 : 80;
+            const elementPosition = container.getBoundingClientRect().top + window.scrollY;
+            window.scrollTo({ top: elementPosition - offset, behavior: 'smooth' });
         }
 
         function renderRubricCards() {
@@ -1410,6 +1506,53 @@
             commentArea.value = narrativeParts.join(" ");
         }
 
+        // --- LEADERBOARD LOGIC ---
+        function updateLeaderboard() {
+            if (!window.submissions.length) return;
+
+            Object.keys(LOMBA_MAP).forEach(lid => {
+                const tbody = document.getElementById(`lb_body_${lid}`);
+                if (!tbody) return;
+
+                let data = [];
+                window.submissions.forEach(sub => {
+                    if (sub[`${lid}_nama_1`]) {
+                        const s1 = window.scores.find(s => s.submissionId === sub.id && s.lombaId === lid && s.judgeNo == "1");
+                        const s2 = window.scores.find(s => s.submissionId === sub.id && s.lombaId === lid && s.judgeNo == "2");
+                        const j1 = s1 ? s1.total : 0, j2 = s2 ? s2.total : 0;
+                        const avg = (j1 > 0 && j2 > 0) ? (j1 + j2) / 2 : Math.max(j1, j2, 0);
+                        const schoolName = (sub.nama_sekolah || "").toUpperCase().trim();
+                        data.push({ noUndian: UNDIAN_MAP[schoolName] || 0, avg });
+                    }
+                });
+
+                data.sort((a, b) => b.avg - a.avg);
+
+                tbody.innerHTML = data.map((item, idx) => {
+                    const rank = item.avg > 0 ? idx + 1 : null;
+                    let rankDisplay = rank || '-';
+                    let rowClass = "";
+                    
+                    if (rank === 1) { rankDisplay = "🥇"; rowClass = "rank-row-1"; }
+                    else if (rank === 2) { rankDisplay = "🥈"; rowClass = "rank-row-2"; }
+                    else if (rank === 3) { rankDisplay = "🥉"; rowClass = "rank-row-3"; }
+
+                    return `
+                        <tr class="${rowClass} transition-all border-b border-slate-50 last:border-0">
+                            <td class="px-4 py-3 text-center text-slate-400 font-mono">${idx + 1}</td>
+                            <td class="px-4 py-3 text-center font-black">${String(item.noUndian).padStart(2, '0')}</td>
+                            <td class="px-4 py-3 text-center text-emerald-700 font-mono">${item.avg > 0 ? item.avg.toFixed(2) : '-'}</td>
+                            <td class="px-4 py-3 text-center text-base">${rankDisplay}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-slate-300 font-bold uppercase italic text-[9px] tracking-widest">Belum ada peserta</td></tr>';
+                }
+            });
+        }
+
         function updateJudgingParticipants() {
             const select = document.getElementById('judge_participant_select');
             if (!select || !window.currentUser) return;
@@ -1460,7 +1603,7 @@
                 }); 
                 await window.firestoreTools.deleteDoc(window.firestoreTools.doc(window.db, 'artifacts', window.customAppId, 'public', 'data', 'requests', `${window.currentUser.username}_${sid}`));
                 showModal("BERHASIL", "Nilai telah disimpan.", "success"); 
-                window.activeEditJuriNo = null; updateJudgingParticipants(); updateLockUI();
+                window.activeEditJuriNo = null; updateJudgingParticipants(); updateLockUI(); updateLeaderboard();
             } catch (e) { showModal("GAGAL", e.message, "error"); }
         }
 
